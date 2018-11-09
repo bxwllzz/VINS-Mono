@@ -95,6 +95,7 @@ void update()
 
 }
 
+// pack msg from imu_buf and feature_buf into measurements
 std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
 getMeasurements()
 {
@@ -107,6 +108,7 @@ getMeasurements()
 
         if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
+            // seq: IMU IMU IMU CAM, waiting
             //ROS_WARN("wait for imu, only should happen at the beginning");
             sum_of_wait++;
             return measurements;
@@ -114,10 +116,13 @@ getMeasurements()
 
         if (!(imu_buf.front()->header.stamp.toSec() < feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
+            // seq: CAM IMU IMU IMU, throw CAM
             ROS_WARN("throw img, only should happen at the beginning");
             feature_buf.pop();
             continue;
         }
+
+        // seq: IMU IMU CAM IMU IMU, good
         sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
         feature_buf.pop();
 
@@ -127,9 +132,12 @@ getMeasurements()
             IMUs.emplace_back(imu_buf.front());
             imu_buf.pop();
         }
+        // aslt imu msg won't be popped
         IMUs.emplace_back(imu_buf.front());
         if (IMUs.empty())
             ROS_WARN("no imu between two image");
+
+        // measurement seq: IMU IMU ... IMU IMU CAM IMU
         measurements.emplace_back(IMUs, img_msg);
     }
     return measurements;
@@ -226,8 +234,10 @@ void process()
             {
                 double t = imu_msg->header.stamp.toSec();
                 double img_t = img_msg->header.stamp.toSec() + estimator.td;
+                // seq: IMU IMU ... IMU CAM IMU
                 if (t <= img_t)
-                { 
+                {
+                    // previous imu msgs: *IMU *IMU ... *IMU CAM IMU
                     if (current_time < 0)
                         current_time = t;
                     double dt = t - current_time;
@@ -245,12 +255,16 @@ void process()
                 }
                 else
                 {
+                    // last IMU msg: IMU IMU ... IMU ==dt_1=> CAM ==dt_2=> *IMU
                     double dt_1 = img_t - current_time;
                     double dt_2 = t - img_t;
                     current_time = img_t;
                     ROS_ASSERT(dt_1 >= 0);
                     ROS_ASSERT(dt_2 >= 0);
                     ROS_ASSERT(dt_1 + dt_2 > 0);
+                    // merge prev imu msg and this imu msg
+                    // weight depends on the ratio of durations
+                    // the imu msg closer to cam msg has more weight in merging
                     double w1 = dt_2 / (dt_1 + dt_2);
                     double w2 = dt_1 / (dt_1 + dt_2);
                     dx = w1 * dx + w2 * imu_msg->linear_acceleration.x;
@@ -262,6 +276,9 @@ void process()
                     estimator.processIMU(dt_1, Vector3d(dx, dy, dz), Vector3d(rx, ry, rz));
                     //printf("dimu: dt:%f a: %f %f %f w: %f %f %f\n",dt_1, dx, dy, dz, rx, ry, rz);
                 }
+
+                // final seq: IMU IMU ... IMU MERGED_IMU
+                //                            CAM
             }
             // set relocalization frame
             sensor_msgs::PointCloudConstPtr relo_msg = NULL;
@@ -293,19 +310,20 @@ void process()
             ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
             TicToc t_s;
+            // {}
             map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
                 int v = img_msg->channels[0].values[i] + 0.5;
                 int feature_id = v / NUM_OF_CAM;
                 int camera_id = v % NUM_OF_CAM;
-                double x = img_msg->points[i].x;
-                double y = img_msg->points[i].y;
-                double z = img_msg->points[i].z;
-                double p_u = img_msg->channels[1].values[i];
-                double p_v = img_msg->channels[2].values[i];
-                double velocity_x = img_msg->channels[3].values[i];
-                double velocity_y = img_msg->channels[4].values[i];
+                double x = img_msg->points[i].x; // unified planar x, unit: m
+                double y = img_msg->points[i].y; // unified planar y, unit: m
+                double z = img_msg->points[i].z; // 1.0 m
+                double p_u = img_msg->channels[1].values[i]; // image planar, unit: pixel
+                double p_v = img_msg->channels[2].values[i]; // image planar, unit: pixel
+                double velocity_x = img_msg->channels[3].values[i]; // velocity of point in image planar, unit: pixel/s
+                double velocity_y = img_msg->channels[4].values[i]; // velocity of point in image planar, unit: pixel/s
                 ROS_ASSERT(z == 1);
                 Eigen::Matrix<double, 7, 1> xyz_uv_velocity;
                 xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;

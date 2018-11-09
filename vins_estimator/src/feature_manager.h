@@ -15,6 +15,7 @@ using namespace Eigen;
 
 #include "parameters.h"
 
+// track feature in single frame
 class FeaturePerFrame
 {
   public:
@@ -29,7 +30,7 @@ class FeaturePerFrame
         velocity.y() = _point(6); 
         cur_td = td;
     }
-    double cur_td;
+    double cur_td;  // time delay between camera and imu, t_cam + td = t_imu
     Vector3d point;
     Vector2d uv;
     Vector2d velocity;
@@ -41,12 +42,13 @@ class FeaturePerFrame
     double dep_gradient;
 };
 
+// track feature in serial of frames
 class FeaturePerId
 {
   public:
     const int feature_id;
-    int start_frame;
-    vector<FeaturePerFrame> feature_per_frame;
+    int start_frame;    // index of this feature in sliding window
+    vector<FeaturePerFrame> feature_per_frame;  // this feature observed in some frames
 
     int used_num;
     bool is_outlier;

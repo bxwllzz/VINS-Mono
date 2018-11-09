@@ -51,6 +51,24 @@ class IntegrationBase
             propagate(dt_buf[i], acc_buf[i], gyr_buf[i]);
     }
 
+    /* INPUT */
+    // _acc_0: acc at _dt begin
+    // _acc_1: acc at _dt end
+    // _gyr_0: gyro at _dt begin
+    // _gyr_1: gyro at _dt end
+    // delta_p: position from begin of pre-integration
+    // delta_q: quaternion from begin of pre-integration
+    // delta_v: velocity from begin of pre-integration
+    // linearized_ba: bias of acc
+    // linearized_bg: bias of gyro
+    // update_jacobian: always true
+
+    /* OUTPUT */
+    // result_delta_p: delta_p after mid point integration
+    // result_delta_q: delta_q after mid point integration
+    // result_delta_v: delta_v after mid point integration
+    // result_linearized_ba: same as linearized_ba
+    // result_linearized_bg: same as linearized_bg
     void midPointIntegration(double _dt, 
                             const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,
                             const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1,
@@ -60,13 +78,15 @@ class IntegrationBase
                             Eigen::Vector3d &result_linearized_ba, Eigen::Vector3d &result_linearized_bg, bool update_jacobian)
     {
         //ROS_INFO("midpoint integration");
-        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);
-        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
+        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);     // corrected acc_0
+        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;  // corrected gyro
+        // update orientation
+        // w = cos(theta/2) ~= 1, x = sin(theta / 2) ~= theta / 2 when theta is small
         result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);
-        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);
-        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;
-        result_delta_v = delta_v + un_acc * _dt;
+        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);  // corrected acc_0
+        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);  // corrected average acc
+        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;    // update position
+        result_delta_v = delta_v + un_acc * _dt;    // update velocity
         result_linearized_ba = linearized_ba;
         result_linearized_bg = linearized_bg;         
 

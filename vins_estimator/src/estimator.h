@@ -64,28 +64,30 @@ class Estimator
 
     SolverFlag solver_flag;
     MarginalizationFlag  marginalization_flag;
-    Vector3d g;
+    Vector3d g;                 // gravity in first cam frame (when INITIAL) OR in world frame (when NON_LINEAR)
     MatrixXd Ap[2], backup_A;
     VectorXd bp[2], backup_b;
 
-    Matrix3d ric[NUM_OF_CAM];
-    Vector3d tic[NUM_OF_CAM];
+    Matrix3d ric[NUM_OF_CAM];   // rotation from imu to cam
+    Vector3d tic[NUM_OF_CAM];   // translation from imu to cam
 
-    Vector3d Ps[(WINDOW_SIZE + 1)];
-    Vector3d Vs[(WINDOW_SIZE + 1)];
-    Matrix3d Rs[(WINDOW_SIZE + 1)];
-    Vector3d Bas[(WINDOW_SIZE + 1)];
-    Vector3d Bgs[(WINDOW_SIZE + 1)];
-    double td;
+    // TOTAL WINDOW SIZE = WINDOW_SIZE + 1, last frame is the newest frame
+    Vector3d Ps[(WINDOW_SIZE + 1)];     // Positions in sliding window
+    Vector3d Vs[(WINDOW_SIZE + 1)];     // Velocities in sliding window
+    Matrix3d Rs[(WINDOW_SIZE + 1)];     // Rotations in sliding window
+    Vector3d Bas[(WINDOW_SIZE + 1)];    // Bias of Acceleration in sliding window
+    Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window
+    double td;                          // time delay between cam and imu, t_cam + td = t_imu
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
-    Vector3d acc_0, gyr_0;
+    Vector3d acc_0, gyr_0;  // lastest acc and gyro
 
-    vector<double> dt_buf[(WINDOW_SIZE + 1)];
+    /* data for imu pre-integration */
+    vector<double> dt_buf[(WINDOW_SIZE + 1)];   // dt between imu msg
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> angular_velocity_buf[(WINDOW_SIZE + 1)];
 
