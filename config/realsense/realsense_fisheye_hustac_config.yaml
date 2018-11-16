@@ -11,17 +11,17 @@ camera_name: fisheye
 image_width: 640
 image_height: 480
 mirror_parameters:
-   xi: 1.5566791109283626e+00
+   xi: 1.7425500436410966
 distortion_parameters:
-   k1: -1.8057568599807852e-01
-   k2: 2.6010313887548098e-01
-   p1: -5.8892067048964475e-04
-   p2: 1.1800858842399686e-03
+   k1: -0.0777216768779867
+   k2: 0.27313136929382853
+   p1: -0.0023801200837346827
+   p2: 0.0031202650112331413
 projection_parameters:
-   gamma1: 7.1309823661426697e+02
-   gamma2: 7.1195105453270446e+02
-   u0: 3.1106607365451219e+02
-   v0: 2.3351715453035058e+02
+   gamma1: 761.9519174928993
+   gamma2: 761.4240116807508
+   u0: 309.9922373171858
+   v0: 234.27447300350485
 
 # Extrinsic parameter between IMU and Camera.
 estimate_extrinsic: 1   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.

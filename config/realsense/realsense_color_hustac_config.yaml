@@ -2,7 +2,7 @@
 
 #common parameters
 imu_topic: "/camera/imu/data"
-image_topic: "/camera/rgb/image_mono"
+image_topic: "/camera/color/image_raw"
 output_path: "/home/hustac/output/"
 
 #camera calibration 
@@ -11,18 +11,18 @@ camera_name: camera
 image_width: 640
 image_height: 480
 distortion_parameters:
-   k1: 1.0063993030776448e-01
-   k2: -1.9163746352325142e-01
-   p1: -8.9992686737676845e-05
-   p2: -4.6555059958106200e-04
+   k1: 0.11816724463284349
+   k2: -0.25070943014513336
+   p1: -0.0004410376752765858
+   p2: 0.00028238523182565434
 projection_parameters:
-   fx: 6.1546754959534803e+02
-   fy: 6.1599059751014170e+02
-   cx: 3.1404129903419613e+02
-   cy: 2.4494253442833102e+02
+   fx: 617.9125775470295
+   fy: 618.5388706342017
+   cx: 316.0682645282202
+   cy: 244.95553345979613
 
 # Extrinsic parameter between IMU and Camera.
-estimate_extrinsic: 0   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.
+estimate_extrinsic: 1   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.
                         # 1  Have an initial guess about extrinsic parameters. We will optimize around your initial guess.
                         # 2  Don't know anything about extrinsic parameters. You don't need to give R,T. We will try to calibrate it. Do some rotation movement at beginning.                        
 #If you choose 0 or 1, you should write down the following matrix.
