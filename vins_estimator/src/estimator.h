@@ -68,15 +68,15 @@ class Estimator
     MatrixXd Ap[2], backup_A;
     VectorXd bp[2], backup_b;
 
-    Matrix3d ric[NUM_OF_CAM];   // rotation from imu to cam
-    Vector3d tic[NUM_OF_CAM];   // translation from imu to cam
+    Matrix3d ric[NUM_OF_CAM];   // rotation of cam frame w.r.t. imu frame, R^i_c
+    Vector3d tic[NUM_OF_CAM];   // translation of cam frame w.r.t. imu frame, t^i_c
 
     // TOTAL WINDOW SIZE = WINDOW_SIZE + 1, last frame is the newest frame
-    Vector3d Ps[(WINDOW_SIZE + 1)];     // Positions in sliding window
-    Vector3d Vs[(WINDOW_SIZE + 1)];     // Velocities in sliding window
-    Matrix3d Rs[(WINDOW_SIZE + 1)];     // Rotations in sliding window
-    Vector3d Bas[(WINDOW_SIZE + 1)];    // Bias of Acceleration in sliding window
-    Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window
+    Vector3d Ps[(WINDOW_SIZE + 1)];     // Positions of body frame w.r.t. world frame in sliding window, p^w_b
+    Vector3d Vs[(WINDOW_SIZE + 1)];     // Velocities of body frame w.r.t. world framein sliding window, v^w_b
+    Matrix3d Rs[(WINDOW_SIZE + 1)];     // Rotations of body frame w.r.t. world frame in sliding window, R^w_b
+    Vector3d Bas[(WINDOW_SIZE + 1)];    // Bias of Acceleration in sliding window, un_acc = raw_acc - Ba
+    Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window, un_gyro = raw_gyro - Bg
     double td;                          // time delay between cam and imu, t_cam + td = t_imu
 
     Matrix3d back_R0, last_R, last_R0;

@@ -114,7 +114,7 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         nav_msgs::Odometry odometry;
         odometry.header = header;
         odometry.header.frame_id = "world";
-        odometry.child_frame_id = "world";
+        odometry.child_frame_id = "body";
         Quaterniond tmp_Q;
         tmp_Q = Quaterniond(estimator.Rs[WINDOW_SIZE]);
         odometry.pose.pose.position.x = estimator.Ps[WINDOW_SIZE].x();
@@ -124,9 +124,11 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         odometry.pose.pose.orientation.y = tmp_Q.y();
         odometry.pose.pose.orientation.z = tmp_Q.z();
         odometry.pose.pose.orientation.w = tmp_Q.w();
-        odometry.twist.twist.linear.x = estimator.Vs[WINDOW_SIZE].x();
-        odometry.twist.twist.linear.y = estimator.Vs[WINDOW_SIZE].y();
-        odometry.twist.twist.linear.z = estimator.Vs[WINDOW_SIZE].z();
+        // V^b = R^b_w * V^w
+        Vector3d tmp_vel = estimator.Rs[WINDOW_SIZE].inverse() * estimator.Vs[WINDOW_SIZE];
+        odometry.twist.twist.linear.x = tmp_vel.x();
+        odometry.twist.twist.linear.y = tmp_vel.y();
+        odometry.twist.twist.linear.z = tmp_vel.z();
         pub_odometry.publish(odometry);
 
         geometry_msgs::PoseStamped pose_stamped;
