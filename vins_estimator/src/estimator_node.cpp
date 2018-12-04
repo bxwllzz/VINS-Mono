@@ -203,6 +203,7 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
 void odom_callback(const nav_msgs::OdometryConstPtr& odom_msg) {
     if (odom_msg->header.stamp.toSec() <= last_odom_t) {
         ROS_WARN_STREAM("odom message in disorder!");
+        return;
     }
     last_odom_t = odom_msg->header.stamp.toSec();
 
@@ -210,6 +211,8 @@ void odom_callback(const nav_msgs::OdometryConstPtr& odom_msg) {
     odom_buf.push(odom_msg);
     m_buf.unlock();
     con.notify_one();
+
+    last_odom_t = odom_msg->header.stamp.toSec();
 
     {
         // todo: fuse imu and wheel odom data to fast predict movement
@@ -241,13 +244,17 @@ void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
             feature_buf.pop();
         while(!imu_buf.empty())
             imu_buf.pop();
+        while(!odom_buf.empty())
+            odom_buf.pop();
         m_buf.unlock();
         m_estimator.lock();
         estimator.clearState();
         estimator.setParameter();
         m_estimator.unlock();
         current_time = -1;
+        current_time_odom = -1;
         last_imu_t = 0;
+        last_odom_t = 0;
     }
     return;
 }
