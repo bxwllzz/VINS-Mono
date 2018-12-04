@@ -43,10 +43,34 @@ extrinsicTranslation: !!opencv-matrix
    dt: d
    data: [0.00929952, 0.00520309, 0.00386146]
 
+# Extrinsic parameter between IMU and WheelOdometry (base_link).
+# q_odom2body = quaternion_from_euler(-91.0 / 180 * math.pi, -2.6 / 180 * math.pi, -90.0 / 180 * math.pi)
+# t_odom2body = (0.08, 0.06, 0.57)
+# T_body2odom =
+# [[  2.86741394e-16  -9.98970570e-01   4.53629881e-02   3.40813310e-02]
+#  [ -1.74524064e-02  -4.53560791e-02  -9.98818422e-01   5.73444058e-01]
+#  [  9.99847695e-01  -7.91693306e-04  -1.74344404e-02  -7.00026830e-02]
+#  [  0.00000000e+00   0.00000000e+00   0.00000000e+00   1.00000000e+00]]
+extimate_extrinsic_odom: 0
+#Rotation from odom frame to imu frame, imu^R_odom
+extrinsicOdomRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 2.86741394e-16,  -9.98970570e-01,   4.53629881e-02,
+          -1.74524064e-02,  -4.53560791e-02,  -9.98818422e-01, 
+           9.99847695e-01,  -7.91693306e-04,  -1.74344404e-02]
+#Translation from camera frame to imu frame, imu^T_odom
+extrinsicOdomTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [3.40813310e-02, 5.73444058e-01, -7.00026830e-02]
+
 #feature traker paprameters
 max_cnt: 150            # max feature number in feature tracking
 min_dist: 30            # min distance between two features
-freq: 0                 # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image
+freq: 10                 # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image
 F_threshold: 1.0        # ransac threshold (pixel)
 show_track: 1           # publish tracking image as topic
 equalize: 0             # if image is too dark or light, trun on equalize to find enough features
@@ -54,7 +78,7 @@ fisheye: 0              # if using fisheye, trun on it. A circle mask will be lo
 
 #optimization parameters
 max_solver_time: 0.03  # max solver itration time (ms), to guarantee real time
-max_num_iterations: 8   # max solver itrations, to guarantee real time
+max_num_iterations: 16   # max solver itrations, to guarantee real time
 keyframe_parallax: 10.0 # keyframe selection threshold (pixel)
 
 #imu parameters       The more accurate parameters you provide, the better performance
