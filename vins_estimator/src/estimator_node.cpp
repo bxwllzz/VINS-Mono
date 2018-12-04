@@ -5,8 +5,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <ros/ros.h>
+#include <nav_msgs/Odometry.h>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
+#include <Eigen/Geometry>
 
 #include "estimator.h"
 #include "parameters.h"
@@ -17,8 +19,10 @@ Estimator estimator;
 
 std::condition_variable con;
 double current_time = -1;
+double current_time_odom = -1;
 queue<sensor_msgs::ImuConstPtr> imu_buf;
 queue<sensor_msgs::PointCloudConstPtr> feature_buf;
+queue<nav_msgs::OdometryConstPtr> odom_buf;
 queue<sensor_msgs::PointCloudConstPtr> relo_buf;
 int sum_of_wait = 0;
 
@@ -38,6 +42,7 @@ Eigen::Vector3d gyr_0;
 bool init_feature = 0;
 bool init_imu = 1;
 double last_imu_t = 0;
+double last_odom_t = 0;
 
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
@@ -95,34 +100,50 @@ void update()
 
 }
 
+struct Measurement {
+    std::vector<sensor_msgs::ImuConstPtr> imu_msgs;
+    std::vector<nav_msgs::OdometryConstPtr> odom_msgs;
+    sensor_msgs::PointCloudConstPtr img_msg;
+
+    Measurement(const std::vector<sensor_msgs::ImuConstPtr> &_imus,
+                const std::vector<nav_msgs::OdometryConstPtr> &_odoms,
+                const sensor_msgs::PointCloudConstPtr &_img) :
+            imu_msgs(_imus), odom_msgs(_odoms), img_msg(_img) {}
+};
+
 // pack msg from imu_buf and feature_buf into measurements
-std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
+std::vector<Measurement>
 getMeasurements()
 {
-    std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
+    std::vector<Measurement> measurements;
 
     while (true)
     {
-        if (imu_buf.empty() || feature_buf.empty())
+        if (imu_buf.empty() || odom_buf.empty() || feature_buf.empty())
             return measurements;
 
-        if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
+        if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td)
+            || odom_buf.back()->header.stamp.toSec() <= feature_buf.front()->header.stamp.toSec() + estimator.td_odom)
         {
             // seq: IMU IMU IMU CAM, waiting
+            // seq: ODOM ODOM ODOM CAM, waiting
             //ROS_WARN("wait for imu, only should happen at the beginning");
             sum_of_wait++;
             return measurements;
         }
 
-        if (!(imu_buf.front()->header.stamp.toSec() < feature_buf.front()->header.stamp.toSec() + estimator.td))
+        if (!(imu_buf.front()->header.stamp.toSec() < feature_buf.front()->header.stamp.toSec() + estimator.td)
+            || odom_buf.front()->header.stamp.toSec() >= feature_buf.front()->header.stamp.toSec() + estimator.td_odom)
         {
             // seq: CAM IMU IMU IMU, throw CAM
+            // seq: CAM ODOM ODOM ODOM, throw CAM
             ROS_WARN("throw img, only should happen at the beginning");
             feature_buf.pop();
             continue;
         }
 
         // seq: IMU IMU CAM IMU IMU, good
+        // seq: ODOM ODOM CAM ODOM ODOM, good
         sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
         feature_buf.pop();
 
@@ -132,13 +153,23 @@ getMeasurements()
             IMUs.emplace_back(imu_buf.front());
             imu_buf.pop();
         }
-        // aslt imu msg won't be popped
-        IMUs.emplace_back(imu_buf.front());
         if (IMUs.empty())
             ROS_WARN("no imu between two image");
+        // last imu msg won't be popped
+        IMUs.emplace_back(imu_buf.front());
+
+        std::vector<nav_msgs::OdometryConstPtr> ODOMs;
+        while (odom_buf.front()->header.stamp.toSec() < img_msg->header.stamp.toSec() + estimator.td_odom) {
+            ODOMs.emplace_back(odom_buf.front());
+            odom_buf.pop();
+        }
+        if (ODOMs.empty())
+            ROS_WARN("no odom between two image");
+        // last odom msg won't be popped
+        ODOMs.emplace_back(odom_buf.front());
 
         // measurement seq: IMU IMU ... IMU IMU CAM IMU
-        measurements.emplace_back(IMUs, img_msg);
+        measurements.emplace_back(IMUs, ODOMs, img_msg);
     }
     return measurements;
 }
@@ -166,6 +197,22 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
         header.frame_id = "world";
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
             pubLatestOdometry(tmp_P, tmp_Q, tmp_V, header);
+    }
+}
+
+void odom_callback(const nav_msgs::OdometryConstPtr& odom_msg) {
+    if (odom_msg->header.stamp.toSec() <= last_odom_t) {
+        ROS_WARN_STREAM("odom message in disorder!");
+    }
+    last_odom_t = odom_msg->header.stamp.toSec();
+
+    m_buf.lock();
+    odom_buf.push(odom_msg);
+    m_buf.unlock();
+    con.notify_one();
+
+    {
+        // todo: fuse imu and wheel odom data to fast predict movement
     }
 }
 
@@ -218,7 +265,7 @@ void process()
 {
     while (true)
     {
-        std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
+        std::vector<Measurement> measurements;
         std::unique_lock<std::mutex> lk(m_buf);
         con.wait(lk, [&]
                  {
@@ -228,12 +275,13 @@ void process()
         m_estimator.lock();
         for (auto &measurement : measurements)
         {
-            auto img_msg = measurement.second;
+            auto img_msg = measurement.img_msg;
+            double img_t = img_msg->header.stamp.toSec() + estimator.td;
+
             double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
-            for (auto &imu_msg : measurement.first)
+            for (auto &imu_msg : measurement.imu_msgs)
             {
                 double t = imu_msg->header.stamp.toSec();
-                double img_t = img_msg->header.stamp.toSec() + estimator.td;
                 // seq: IMU IMU ... IMU CAM IMU
                 if (t <= img_t)
                 {
@@ -251,7 +299,6 @@ void process()
                     rz = imu_msg->angular_velocity.z;
                     estimator.processIMU(dt, Vector3d(dx, dy, dz), Vector3d(rx, ry, rz));
                     //printf("imu: dt:%f a: %f %f %f w: %f %f %f\n",dt, dx, dy, dz, rx, ry, rz);
-
                 }
                 else
                 {
@@ -280,6 +327,70 @@ void process()
                 // final seq: IMU IMU ... IMU MERGED_IMU
                 //                            CAM
             }
+
+            double px = 0, py = 0, yaw = 0;
+            for (auto &odom_msg : measurement.odom_msgs) {
+                double t = odom_msg->header.stamp.toSec();
+                // seq: IMU IMU ... IMU CAM IMU
+                if (t <= img_t)
+                {
+                    // previous imu msgs: *IMU *IMU ... *IMU CAM IMU
+                    if (current_time_odom < 0)
+                        current_time_odom = t;
+                    double dt = t - current_time_odom;
+                    ROS_ASSERT(dt >= 0);
+                    current_time_odom = t;
+                    px = odom_msg->pose.pose.position.x;
+                    py = odom_msg->pose.pose.position.y;
+                    double pz = odom_msg->pose.pose.position.z;
+                    double qx = odom_msg->pose.pose.orientation.x;
+                    double qy = odom_msg->pose.pose.orientation.y;
+                    double qz = odom_msg->pose.pose.orientation.z;
+                    double qw = odom_msg->pose.pose.orientation.w;
+                    ROS_ASSERT(pz == 0 && qx == 0 && qy == 0);
+                    Eigen::Vector3d ypr = Utility::R2ypr(Eigen::Quaterniond(qw, qx, qy, qz).toRotationMatrix());
+                    ROS_ASSERT(ypr[1] == 0 && ypr[2] == 0);
+                    yaw = ypr[0] / 180.0 * M_PI;
+                    estimator.processOdometry(dt, {px, py}, yaw);
+                }
+                else
+                {
+                    // last IMU msg: IMU IMU ... IMU ==dt_1=> CAM ==dt_2=> *IMU
+                    double dt_1 = img_t - current_time_odom;
+                    double dt_2 = t - img_t;
+                    current_time_odom = img_t;
+                    ROS_ASSERT(dt_1 >= 0);
+                    ROS_ASSERT(dt_2 >= 0);
+                    ROS_ASSERT(dt_1 + dt_2 > 0);
+                    // merge prev imu msg and this imu msg
+                    // weight depends on the ratio of durations
+                    // the imu msg closer to cam msg has more weight in merging
+                    // todo: interpolate pose using circle movement
+                    double w1 = dt_2 / (dt_1 + dt_2);
+                    double w2 = dt_1 / (dt_1 + dt_2);
+                    px = w1 * px + w2 * odom_msg->pose.pose.position.x;
+                    py = w1 * py + w2 * odom_msg->pose.pose.position.y;
+                    double pz = odom_msg->pose.pose.position.z;
+                    double qx = odom_msg->pose.pose.orientation.x;
+                    double qy = odom_msg->pose.pose.orientation.y;
+                    double qz = odom_msg->pose.pose.orientation.z;
+                    double qw = odom_msg->pose.pose.orientation.w;
+                    ROS_ASSERT(pz == 0 && qx == 0 && qy == 0);
+                    Eigen::Vector3d ypr = Utility::R2ypr(Eigen::Quaterniond(qw, qx, qy, qz).toRotationMatrix());
+                    ROS_ASSERT(ypr[1] == 0 && ypr[2] == 0);
+                    double yaw_2 = ypr[0] / 180.0 * M_PI;
+                    // fit yaw_2 to [yaw - pi, yaw + pi]
+                    yaw_2 = std::remainder(yaw_2 - yaw, 2 * M_PI) + yaw;
+                    yaw = w1 * yaw + w2 * yaw_2;
+                    // fit yaw to [-pi, pi)
+                    yaw = std::remainder(yaw, 2 * M_PI);
+                    estimator.processOdometry(dt_1, {px, py}, yaw);
+                }
+
+                // final seq: IMU IMU ... IMU MERGED_IMU
+                //                            CAM
+            }
+
             // set relocalization frame
             sensor_msgs::PointCloudConstPtr relo_msg = NULL;
             while (!relo_buf.empty())
@@ -366,11 +477,12 @@ int main(int argc, char **argv)
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
-    ROS_WARN("waiting for image and imu...");
+    ROS_WARN("waiting for image, odom and imu...");
 
     registerPub(n);
 
     ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
+    ros::Subscriber sub_odom = n.subscribe(ODOM_TOPIC, 2000, odom_callback, ros::TransportHints().tcpNoDelay());
     ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
     ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
     ros::Subscriber sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);

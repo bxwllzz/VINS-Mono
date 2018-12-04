@@ -23,6 +23,17 @@ std::string IMU_TOPIC;
 double ROW, COL;
 double TD, TR;
 
+std::string ODOM_TOPIC;
+int ESTIMATE_EXTRINSIC_ODOM;
+Eigen::Matrix3d RIO;
+Eigen::Vector3d TIO;
+int ESTIMATE_TD_ODOM;
+double TD_ODOM;
+double WHEEL_N;
+double BASE_RADIUS;
+double BASE_Z_N;
+double BASE_RP_N;
+
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
 {
@@ -128,6 +139,47 @@ void readParameters(ros::NodeHandle &n)
     {
         TR = 0;
     }
-    
+
+    fsSettings["odom_topic"] >> ODOM_TOPIC;
+
+    fsSettings["extimate_extrinsic_odom"] >> ESTIMATE_EXTRINSIC_ODOM;
+    if (ESTIMATE_EXTRINSIC_ODOM == 2) {
+        ROS_WARN("have no prior about extrinsic param between imu and base, calibrate extrinsic param");
+        RIO = Eigen::Matrix3d::Identity();
+        TIO = Eigen::Vector3d::Zero();
+    } else {
+        if (ESTIMATE_EXTRINSIC == 1) {
+            ROS_WARN(" Optimize extrinsic param between imu and base around initial guess!");
+        }
+        if (ESTIMATE_EXTRINSIC == 0)
+            ROS_WARN(" fix extrinsic param between imu and base");
+
+        cv::Mat cv_R, cv_T;
+        fsSettings["extrinsicOdomRotation"] >> cv_R;
+        fsSettings["extrinsicOdomTranslation"] >> cv_T;
+        Eigen::Matrix3d eigen_R;
+        Eigen::Vector3d eigen_T;
+        cv::cv2eigen(cv_R, eigen_R);
+        cv::cv2eigen(cv_T, eigen_T);
+        Eigen::Quaterniond Q(eigen_R);
+        eigen_R = Q.normalized();
+        RIO = eigen_R;
+        TIO = eigen_T;
+        ROS_INFO_STREAM("Extrinsic_Odom_R : " << std::endl << RIO);
+        ROS_INFO_STREAM("Extrinsic_Odom_T : " << std::endl << TIO.transpose());
+    }
+
+    TD_ODOM = fsSettings["odom_td"];
+    ESTIMATE_TD_ODOM = fsSettings["estimate_odom_td"];
+    if (ESTIMATE_TD)
+        ROS_INFO_STREAM("Unsynchronized odom sensors, online estimate time offset, initial td: " << TD_ODOM);
+    else
+        ROS_INFO_STREAM("Synchronized odom sensors, fix time offset: " << TD_ODOM);
+
+    fsSettings["wheel_n"] >> WHEEL_N;
+    fsSettings["base_radius"] >> BASE_RADIUS;
+    fsSettings["base_z_n"] >> BASE_Z_N;
+    fsSettings["base_rp_n"] >> BASE_RP_N;
+
     fsSettings.release();
 }

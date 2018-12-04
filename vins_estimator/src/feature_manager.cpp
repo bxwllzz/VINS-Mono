@@ -41,7 +41,7 @@ int FeatureManager::getFeatureCount()
     return cnt;
 }
 
-
+// 检查视差, 判定是否将该帧加入滑动窗口
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
     ROS_DEBUG("input feature: %d", (int)image.size());

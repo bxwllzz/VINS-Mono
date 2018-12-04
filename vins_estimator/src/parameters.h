@@ -38,6 +38,16 @@ extern int ESTIMATE_TD;
 extern int ROLLING_SHUTTER;
 extern double ROW, COL;
 
+extern std::string ODOM_TOPIC;
+extern int ESTIMATE_EXTRINSIC_ODOM;
+extern Eigen::Matrix3d RIO;
+extern Eigen::Vector3d TIO;
+extern int ESTIMATE_TD_ODOM;
+extern double TD_ODOM;
+extern double WHEEL_N;
+extern double BASE_RADIUS;
+extern double BASE_Z_N;
+extern double BASE_RP_N;
 
 void readParameters(ros::NodeHandle &n);
 

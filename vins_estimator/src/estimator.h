@@ -25,13 +25,15 @@
 
 class Estimator
 {
-  public:
+public:
+
     Estimator();
 
     void setParameter();
 
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
+    void processOdometry(double t, const Vector2d &position, double yaw_angle);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
@@ -79,17 +81,19 @@ class Estimator
     Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window, un_gyro = raw_gyro - Bg
     double td;                          // time delay between cam and imu, t_cam + td = t_imu
 
+    Matrix3d rio;
+    Vector3d tio;
+    double td_odom;
+    bool first_odometry;    // false: has not recved any wheel odometry msg
+    Vector2d odom_pos_0;    // lastest wheel odometry position
+    double odom_yaw_0;      // lastest wheel odometry yaw angle
+
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
-    IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
+    std::shared_ptr<IntegrationBase> pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;  // lastest acc and gyro
-
-    /* data for imu pre-integration */
-    vector<double> dt_buf[(WINDOW_SIZE + 1)];   // dt between imu msg
-    vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
-    vector<Vector3d> angular_velocity_buf[(WINDOW_SIZE + 1)];
 
     int frame_count;
     int sum_of_outlier, sum_of_back, sum_of_front, sum_of_invalid;
@@ -107,7 +111,6 @@ class Estimator
     vector<Vector3d> key_poses;
     double initial_timestamp;
 
-
     double para_Pose[WINDOW_SIZE + 1][SIZE_POSE];
     double para_SpeedBias[WINDOW_SIZE + 1][SIZE_SPEEDBIAS];
     double para_Feature[NUM_OF_F][SIZE_FEATURE];
@@ -121,8 +124,12 @@ class Estimator
     MarginalizationInfo *last_marginalization_info;
     vector<double *> last_marginalization_parameter_blocks;
 
+    /* Initialization */
+    // all frame, including non-keyframe (frame older than oldest keyframe will be removed)
     map<double, ImageFrame> all_image_frame;
-    IntegrationBase *tmp_pre_integration;
+    // imu and base odom integration for current frame
+    std::shared_ptr<IntegrationBase> tmp_pre_integration;
+    std::shared_ptr<BaseOdometryIntegration> tmp_base_odom;
 
     //relocalization variable
     bool relocalization_info;

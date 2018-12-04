@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cassert>
 #include <cstring>
+#include <vector>
 #include <eigen3/Eigen/Dense>
 
 class Utility
@@ -70,9 +71,9 @@ class Utility
         Eigen::Vector3d a = R.col(2);
 
         Eigen::Vector3d ypr(3);
-        double y = atan2(n(1), n(0));
-        double p = atan2(-n(2), n(0) * cos(y) + n(1) * sin(y));
-        double r = atan2(a(0) * sin(y) - a(1) * cos(y), -o(0) * sin(y) + o(1) * cos(y));
+        double y = atan2(n(1), n(0));                                                    // [-180, 180]
+        double p = atan2(-n(2), n(0) * cos(y) + n(1) * sin(y));                          // [-90, 90]
+        double r = atan2(a(0) * sin(y) - a(1) * cos(y), -o(0) * sin(y) + o(1) * cos(y)); // [-180, 180]
         ypr(0) = y;
         ypr(1) = p;
         ypr(2) = r;
@@ -137,4 +138,58 @@ class Utility
         return angle_degrees +
             two_pi * std::floor((-angle_degrees + T(180)) / two_pi);
     };
+
+    template <typename Derived>
+    static Eigen::Quaternion<Derived> meanQ(const std::vector<Eigen::Quaternion<Derived>>& Qs, const std::vector<double>& weights={}) {
+        // by Tolga Birdal
+        // Q is an Mx4 matrix of quaternions. weights is an Mx1 vector, a weight for
+        // each quaternion.
+        // Qavg is the weightedaverage quaternion
+        // This function is especially useful for example when clustering poses
+        // after a matching process. In such cases a form of weighting per rotation
+        // is available (e.g. number of votes), which can guide the trust towards a
+        // specific pose. weights might then be interpreted as the vector of votes
+        // per pose.
+        // Markley, F. Landis, Yang Cheng, John Lucas Crassidis, and Yaakov Oshman.
+        // "Averaging quaternions." Journal of Guidance, Control, and Dynamics 30,
+        // no. 4 (2007): 1193-1197.
+        // function [Qavg]=quatWAvgMarkley(Q, weights)
+        //
+        // % Form the symmetric accumulator matrix
+        // A=zeros(4,4);
+        // M=size(Q,1);
+        // wSum = 0;
+        //
+        // for i=1:M
+        //     q = Q(i,:)';
+        //     w_i = weights(i);
+        //     A=w_i.*(q*q')+A; % rank 1 update
+        //     wSum = wSum + w_i;
+        // end
+        //
+        // % scale
+        // A=(1.0/wSum)*A;
+        //
+        // % Get the eigenvector corresponding to largest eigen value
+        // [Qavg, ~]=eigs(A,1);
+        //
+        // end
+        Eigen::Matrix4d A = Eigen::Matrix4d::Zero();
+        double sum_weight = 0;
+        for (int i = 0; i < Qs.size(); i++) {
+            Eigen::Vector4d q_i = Qs[i];
+            double w_i;
+            if (weights.size() != A.size()) {
+                w_i = 1.0;
+            } else {
+                w_i = weights[i];
+            }
+            A += w_i * (q_i * q_i.transpose());
+            sum_weight += w_i;
+        }
+        A /= sum_weight;
+
+        return Eigen::Quaternion<Derived>();
+    }
+
 };

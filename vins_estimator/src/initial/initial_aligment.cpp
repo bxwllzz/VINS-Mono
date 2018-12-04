@@ -52,6 +52,8 @@ MatrixXd TangentBasis(Vector3d &g0)
     return bc;
 }
 
+// g [INPUT & OUTPUT]: gravity in cam0 frame
+// x [OUTPUT]: result vector
 void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x)
 {
     Vector3d g0 = g.normalized() * G.norm();
@@ -67,15 +69,20 @@ void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vector
 
     map<double, ImageFrame>::iterator frame_i;
     map<double, ImageFrame>::iterator frame_j;
+    // iterate to refine gravity
     for(int k = 0; k < 4; k++)
     {
+        // calc b_1, b_2 as paper algorithm 1.
         MatrixXd lxly(3, 2);
         lxly = TangentBasis(g0);
+
         int i = 0;
         for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++, i++)
         {
             frame_j = next(frame_i);
 
+            // gravity is 2Dims
+            // 3+3+2+1=9 Dims
             MatrixXd tmp_A(6, 9);
             tmp_A.setZero();
             VectorXd tmp_b(6);
@@ -86,7 +93,7 @@ void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vector
 
             tmp_A.block<3, 3>(0, 0) = -dt * Matrix3d::Identity();
             tmp_A.block<3, 2>(0, 6) = frame_i->second.R.transpose() * dt * dt / 2 * Matrix3d::Identity() * lxly;
-            tmp_A.block<3, 1>(0, 8) = frame_i->second.R.transpose() * (frame_j->second.T - frame_i->second.T) / 100.0;     
+            tmp_A.block<3, 1>(0, 8) = frame_i->second.R.transpose() * (frame_j->second.T - frame_i->second.T) / 100.0;
             tmp_b.block<3, 1>(0, 0) = frame_j->second.pre_integration->delta_p + frame_i->second.R.transpose() * frame_j->second.R * TIC[0] - TIC[0] - frame_i->second.R.transpose() * dt * dt / 2 * g0;
 
             tmp_A.block<3, 3>(3, 0) = -Matrix3d::Identity();
@@ -112,13 +119,14 @@ void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vector
             A.block<6, 3>(i * 3, n_state - 3) += r_A.topRightCorner<6, 3>();
             A.block<3, 6>(n_state - 3, i * 3) += r_A.bottomLeftCorner<3, 6>();
         }
-            A = A * 1000.0;
-            b = b * 1000.0;
-            x = A.ldlt().solve(b);
-            VectorXd dg = x.segment<2>(n_state - 3);
-            g0 = (g0 + lxly * dg).normalized() * G.norm();
-            //double s = x(n_state - 1);
-    }   
+        A = A * 1000.0;
+        b = b * 1000.0;
+        x = A.ldlt().solve(b);
+        VectorXd dg = x.segment<2>(n_state - 3);
+        g0 = (g0 + lxly * dg).normalized() * G.norm();
+        //double s = x(n_state - 1);
+    }
+
     g = g0;
 }
 
@@ -148,7 +156,7 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
 
         tmp_A.block<3, 3>(0, 0) = -dt * Matrix3d::Identity();
         tmp_A.block<3, 3>(0, 6) = frame_i->second.R.transpose() * dt * dt / 2 * Matrix3d::Identity();
-        tmp_A.block<3, 1>(0, 9) = frame_i->second.R.transpose() * (frame_j->second.T - frame_i->second.T) / 100.0;     
+        tmp_A.block<3, 1>(0, 9) = frame_i->second.R.transpose() * (frame_j->second.T - frame_i->second.T) / 100.0;
         tmp_b.block<3, 1>(0, 0) = frame_j->second.pre_integration->delta_p + frame_i->second.R.transpose() * frame_j->second.R * TIC[0] - TIC[0];
         //cout << "delta_p   " << frame_j->second.pre_integration->delta_p.transpose() << endl;
         tmp_A.block<3, 3>(3, 0) = -Matrix3d::Identity();
@@ -194,6 +202,11 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
         return false;   
     else
         return true;
+}
+
+// base wheel odometry align with IMU
+bool BaseIMUAlignment() {
+
 }
 
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)

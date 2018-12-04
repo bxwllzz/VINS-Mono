@@ -3,6 +3,7 @@
 #include <iostream>
 #include "../factor/imu_factor.h"
 #include "../utility/utility.h"
+#include "../factor/base_odom_integration.h"
 #include <ros/ros.h>
 #include <map>
 #include "../feature_manager.h"
@@ -19,10 +20,12 @@ class ImageFrame
             points = _points;
         };
         map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
+
         double t;
         Matrix3d R;
         Vector3d T;
-        IntegrationBase *pre_integration;
+        std::shared_ptr<IntegrationBase> pre_integration;
+        std::shared_ptr<BaseOdometryIntegration> base_odom;
         bool is_key_frame;
 };
 
