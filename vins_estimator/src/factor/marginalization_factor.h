@@ -1,14 +1,9 @@
 #pragma once
 
-#include <ros/ros.h>
-#include <ros/console.h>
-#include <cstdlib>
-#include <pthread.h>
-#include <ceres/ceres.h>
 #include <unordered_map>
-
-#include "../utility/utility.h"
-#include "../utility/tic_toc.h"
+#include "Eigen/Core"
+#include <ceres/cost_function.h>
+#include <ceres/loss_function.h>
 
 const int NUM_THREADS = 4;
 

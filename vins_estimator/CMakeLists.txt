@@ -1,10 +1,17 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(vins_estimator)
 
-set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+#set(CMAKE_CXX_FLAGS "-std=c++11")
 #-DEIGEN_USE_MKL_ALL")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+
+find_program(CCACHE_FOUND ccache)
+if(CCACHE_FOUND)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+    message(WARNING "Using ccache")
+endif(CCACHE_FOUND)
 
 find_package(catkin REQUIRED COMPONENTS
     roscpp
@@ -36,7 +43,9 @@ add_executable(vins_estimator
     src/estimator_node.cpp
     src/parameters.cpp
     src/estimator.cpp
+    src/estimator_base.cpp
     src/feature_manager.cpp
+    src/factor/base_odom_intergration.cpp
     src/factor/pose_local_parameterization.cpp
     src/factor/projection_factor.cpp
     src/factor/projection_td_factor.cpp

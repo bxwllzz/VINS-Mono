@@ -1,4 +1,5 @@
 <launch>
+
     <arg name="config_path" default = "$(find feature_tracker)/../config/realsense/realsense_color_hustac_config.yaml" />
 	  <arg name="vins_path" default = "$(find feature_tracker)/../config/../" />
     
@@ -7,7 +8,8 @@
         <param name="vins_folder" type="string" value="$(arg vins_path)" />
     </node>
 
-    <node name="vins_estimator" pkg="vins_estimator" type="vins_estimator" output="screen" launch-prefix="gdbserver localhost:10000">
+    <!-- <node name="vins_estimator" pkg="vins_estimator" type="vins_estimator" output="screen" launch-prefix="gdbserver :1234"> -->
+    <node name="vins_estimator" pkg="vins_estimator" type="vins_estimator" output="screen">
        <param name="config_file" type="string" value="$(arg config_path)" />
        <param name="vins_folder" type="string" value="$(arg vins_path)" />
     </node>

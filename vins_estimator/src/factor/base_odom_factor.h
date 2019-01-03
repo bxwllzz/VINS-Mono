@@ -1,0 +1,8 @@
+//
+// Created by bxwllzz on 18-12-17.
+//
+
+#ifndef VINS_ESTIMATOR_BASE_ODOM_FACTOR_H
+#define VINS_ESTIMATOR_BASE_ODOM_FACTOR_H
+
+#endif //VINS_ESTIMATOR_BASE_ODOM_FACTOR_H

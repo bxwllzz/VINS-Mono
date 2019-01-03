@@ -1,3 +1,9 @@
+#include <algorithm>
+using std::max;
+#include <ros/console.h>
+#include "../parameters.h"
+#include "../utility/utility.h"
+
 #include "initial_ex_rotation.h"
 
 InitialEXRotation::InitialEXRotation(){

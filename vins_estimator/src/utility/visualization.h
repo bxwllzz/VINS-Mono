@@ -21,6 +21,7 @@
 
 extern ros::Publisher pub_odometry;
 extern ros::Publisher pub_path, pub_pose;
+extern ros::Publisher pub_vio_base_path, pub_wheel_path, pub_wheel_imu_path;
 extern ros::Publisher pub_cloud, pub_map;
 extern ros::Publisher pub_key_poses;
 extern ros::Publisher pub_ref_pose, pub_cur_pose;
@@ -30,6 +31,8 @@ extern ros::Publisher pub_pose_graph;
 extern int IMAGE_ROW, IMAGE_COL;
 
 void registerPub(ros::NodeHandle &n);
+
+void pubVelocityYaw(const Estimator &estimator, const std_msgs::Header &header);
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, const std_msgs::Header &header);
 

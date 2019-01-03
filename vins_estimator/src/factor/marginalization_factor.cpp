@@ -1,3 +1,10 @@
+#include <numeric>
+#include <Eigen/Dense>
+#include <ros/console.h>
+#include <ros/assert.h>
+#include "../utility/tic_toc.h"
+#include "../utility/utility.h"
+
 #include "marginalization_factor.h"
 
 void ResidualBlockInfo::Evaluate()

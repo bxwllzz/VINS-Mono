@@ -1,27 +1,23 @@
 #pragma once
 
+#include <vector>
+#include <map>
+#include <utility>
+#include <Eigen/Dense>
+#include <std_msgs/Header.h>
+
 #include "parameters.h"
 #include "feature_manager.h"
-#include "utility/utility.h"
-#include "utility/tic_toc.h"
-#include "initial/solve_5pts.h"
-#include "initial/initial_sfm.h"
-#include "initial/initial_alignment.h"
-#include "initial/initial_ex_rotation.h"
-#include <std_msgs/Header.h>
-#include <std_msgs/Float32.h>
-
-#include <ceres/ceres.h>
-#include "factor/imu_factor.h"
-#include "factor/pose_local_parameterization.h"
-#include "factor/projection_factor.h"
-#include "factor/projection_td_factor.h"
+#include "factor/base_odom_integration.h"
 #include "factor/marginalization_factor.h"
+#include "initial/solve_5pts.h"
+#include "initial/initial_ex_rotation.h"
+#include "initial/initial_alignment.h"
 
-#include <unordered_map>
-#include <queue>
-#include <opencv2/core/eigen.hpp>
-
+using namespace Eigen;
+using std::vector;
+using std::map;
+using std::pair;
 
 class Estimator
 {
@@ -33,7 +29,7 @@ public:
 
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
-    void processOdometry(double t, const Vector2d &position, double yaw_angle);
+    void processOdometry(double dt, const pair<Vector2d, double>& velocity, Vector3d imu_angular_velocity);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
@@ -41,6 +37,7 @@ public:
     void clearState();
     bool initialStructure();
     bool visualInitialAlign();
+    bool baseOdomAlign();
     bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);
     void slideWindow();
     void solveOdometry();
@@ -81,12 +78,11 @@ public:
     Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window, un_gyro = raw_gyro - Bg
     double td;                          // time delay between cam and imu, t_cam + td = t_imu
 
-    Matrix3d rio;
-    Vector3d tio;
-    double td_odom;
-    bool first_odometry;    // false: has not recved any wheel odometry msg
-    Vector2d odom_pos_0;    // lastest wheel odometry position
-    double odom_yaw_0;      // lastest wheel odometry yaw angle
+    Matrix3d rib;
+    Vector3d tib;
+    double td_bo;
+    std::shared_ptr<BaseOdometryIntegration> base_integrations[WINDOW_SIZE + 1];
+
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
@@ -129,7 +125,11 @@ public:
     map<double, ImageFrame> all_image_frame;
     // imu and base odom integration for current frame
     std::shared_ptr<IntegrationBase> tmp_pre_integration;
-    std::shared_ptr<BaseOdometryIntegration> tmp_base_odom;
+    std::shared_ptr<BaseOdometryIntegration> tmp_base_integration;
+
+    // wheel only odometry
+    BaseOdometryIntegration wheel_only_odom;
+    BaseOdometryIntegration wheel_imu_odom;
 
     //relocalization variable
     bool relocalization_info;

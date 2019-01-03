@@ -1,15 +1,16 @@
 #pragma once
-#include <eigen3/Eigen/Dense>
-#include <iostream>
-#include "../factor/imu_factor.h"
-#include "../utility/utility.h"
-#include "../factor/base_odom_integration.h"
-#include <ros/ros.h>
 #include <map>
-#include "../feature_manager.h"
+#include <vector>
+#include <memory>
+using std::map;
+using std::vector;
+using std::pair;
 
+#include <Eigen/Core>
 using namespace Eigen;
-using namespace std;
+
+#include "../factor/integration_base.h"
+#include "../factor/base_odom_integration.h"
 
 class ImageFrame
 {
@@ -25,7 +26,7 @@ class ImageFrame
         Matrix3d R;
         Vector3d T;
         std::shared_ptr<IntegrationBase> pre_integration;
-        std::shared_ptr<BaseOdometryIntegration> base_odom;
+        std::shared_ptr<BaseOdometryIntegration> base_integration;
         bool is_key_frame;
 };
 

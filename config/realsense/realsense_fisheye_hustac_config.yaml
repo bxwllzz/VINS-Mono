@@ -3,6 +3,7 @@
 #common parameters
 imu_topic: "/camera/imu/data"
 image_topic: "/camera/fisheye/image_raw"
+odom_topic: "/base/odom"
 output_path: "/home/hustac/output/"
 
 #camera calibration 

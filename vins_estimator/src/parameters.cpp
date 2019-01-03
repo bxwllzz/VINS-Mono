@@ -1,3 +1,8 @@
+#include <fstream>
+#include <Eigen/Core>
+#include <opencv2/core.hpp>
+#include <opencv2/core/eigen.hpp>
+
 #include "parameters.h"
 
 double INIT_DEPTH;

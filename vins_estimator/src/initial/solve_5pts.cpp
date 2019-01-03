@@ -1,5 +1,8 @@
-#include "solve_5pts.h"
+#include <opencv2/sfm.hpp>
+#include <opencv2/calib3d.hpp>
+using cv::sfm::triangulatePoints;
 
+#include "solve_5pts.h"
 
 namespace cv {
     void decomposeEssentialMat( InputArray _E, OutputArray _R1, OutputArray _R2, OutputArray _t )

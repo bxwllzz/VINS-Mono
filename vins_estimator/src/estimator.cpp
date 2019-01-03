@@ -1,3 +1,25 @@
+#include "parameters.h"
+#include "feature_manager.h"
+#include "utility/utility.h"
+#include "utility/tic_toc.h"
+#include "initial/solve_5pts.h"
+#include "initial/initial_sfm.h"
+#include "initial/initial_alignment.h"
+#include "initial/initial_ex_rotation.h"
+#include <std_msgs/Header.h>
+#include <std_msgs/Float32.h>
+
+#include <ceres/ceres.h>
+#include "factor/imu_factor.h"
+#include "factor/pose_local_parameterization.h"
+#include "factor/projection_factor.h"
+#include "factor/projection_td_factor.h"
+#include "factor/marginalization_factor.h"
+
+#include <unordered_map>
+#include <queue>
+#include <opencv2/core/eigen.hpp>
+
 #include "estimator.h"
 
 Estimator::Estimator(): f_manager{Rs}
@@ -18,9 +40,9 @@ void Estimator::setParameter()
     ProjectionTdFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     td = TD;
 
-    rio = RIO;
-    tio = TIO;
-    td_odom = TD_ODOM;
+    rib = RIO;
+    tib = TIO;
+    td_bo = TD_ODOM;
 }
 
 void Estimator::clearState()
@@ -43,7 +65,7 @@ void Estimator::clearState()
     }
 
     solver_flag = INITIAL;
-    first_imu = false,
+    first_imu = true,
     sum_of_back = 0;
     sum_of_front = 0;
     frame_count = 0;
@@ -52,15 +74,15 @@ void Estimator::clearState()
     all_image_frame.clear();
     td = TD;
 
-    rio = Matrix3d::Identity();
-    tio = Vector3d::Zero();
-    td_odom = TD_ODOM;
+    rib = Matrix3d::Identity();
+    tib = Vector3d::Zero();
+    td_bo = TD_ODOM;
 
     if (last_marginalization_info != nullptr)
         delete last_marginalization_info;
 
     tmp_pre_integration.reset();
-    tmp_base_odom.reset();
+    tmp_base_integration.reset();
     last_marginalization_info = nullptr;
     last_marginalization_parameter_blocks.clear();
 
@@ -75,8 +97,8 @@ void Estimator::clearState()
 
 void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
 {
-    if (!first_imu) {
-        first_imu = true;
+    if (first_imu) {
+        first_imu = false;
         acc_0 = linear_acceleration;
         gyr_0 = angular_velocity;
         return;
@@ -94,6 +116,7 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
         tmp_pre_integration->push_back(dt, linear_acceleration, angular_velocity);
 
     // midpoint integration (only valid after intialization)
+    // prepare init guese for non-linear optimization
     auto& j = frame_count;
     auto& acc_1 = linear_acceleration;
     auto& gyr_1 = angular_velocity;
@@ -109,20 +132,39 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
     gyr_0 = angular_velocity;
 }
 
-void Estimator::processOdometry(double dt, const Vector2d &position, double yaw_angle) {
+void Estimator::processOdometry(double dt, const pair<Vector2d, double>& velocity, Vector3d imu_angular_velocity) {
     // todo: process odometry
-    if (!first_odometry) {
-        first_odometry = true;
-        odom_pos_0 = position;
-        odom_yaw_0 = yaw_angle;
+
+    if (!base_integrations[frame_count]) {
+        base_integrations[frame_count] = std::make_shared<BaseOdometryIntegration>();
     }
 
-    // calc delta pose
-    Vector2d d_pos = position - odom_pos_0;
-    double d_yaw = std::remainder(yaw_angle - odom_yaw_0, 2 * M_PI);
+    if (!tmp_base_integration) {
+        tmp_base_integration = std::make_shared<BaseOdometryIntegration>();
+    }
 
-    odom_pos_0 = position;
-    odom_yaw_0 = yaw_angle;
+    imu_angular_velocity -= Bgs[WINDOW_SIZE];
+
+    MergedOdomMeasurement measurement;
+    if (solver_flag == INITIAL) {
+        // R^base_imu is unknown
+        measurement = {dt, velocity};
+    } else {
+        // R^base_imu is known
+        measurement = {dt, velocity, imu_angular_velocity, rib.inverse()};
+    }
+    base_integrations[frame_count]->push_back(measurement);
+    tmp_base_integration->push_back(measurement);
+    ROS_DEBUG(
+            "proc_odom: dt=%lf, velocity={%lf, %lf, %lf(%lf)}",
+            dt,
+            velocity.first.x(),velocity.first.y(),velocity.second,
+            measurement.velocity.second);
+    wheel_imu_odom.push_back(measurement);
+//    wheel_imu_odom.push_back({dt, velocity});
+
+    wheel_only_odom.push_back({dt, velocity});
+//    wheel_only_odom.push_back(measurement);
 }
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
@@ -143,9 +185,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     /* stuff about all_image_frame */
     all_image_frame[header.stamp.toSec()] = ImageFrame(image, header.stamp.toSec());
     all_image_frame[header.stamp.toSec()].pre_integration = std::move(tmp_pre_integration);
-    all_image_frame[header.stamp.toSec()].base_odom = std::move(tmp_base_odom);
+    all_image_frame[header.stamp.toSec()].base_integration = std::move(tmp_base_integration);
     tmp_pre_integration.reset(new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]});
-    tmp_base_odom.reset(new BaseOdometryIntegration(odom_pos_0, odom_yaw_0));
+    tmp_base_integration.reset(new BaseOdometryIntegration());
 
     if(ESTIMATE_EXTRINSIC == 2)
     {
@@ -165,6 +207,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         }
     }
 
+    bool just_initial = false;
     if (solver_flag == INITIAL)
     {
         // initialize VIO
@@ -179,6 +222,8 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 // initialize failed,
             } else {
                 // initialize ok, do non-linear optimization on this frame
+                just_initial = true;
+                baseOdomAlign();
                 solver_flag = NON_LINEAR;
                 ROS_INFO("Initialization finish!");
             }
@@ -201,7 +246,6 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             return;
         }
 
-
         f_manager.removeFailures();
         // prepare output of VINS
         key_poses.clear();
@@ -213,6 +257,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         last_R0 = Rs[0];
         last_P0 = Ps[0];
     }
+
 
     if (frame_count < WINDOW_SIZE) {
         frame_count++;
@@ -385,26 +430,26 @@ bool Estimator::initialStructure()
 
 }
 
-struct PlaneFittingResidual {
-    PlaneFittingResidual(Eigen::Vector3d point)
-        : point_(std::move(point)) {}
-
-    template <typename T>
-    bool operator()(const T* const x, T* residual) const {
-        auto& A = x[0];
-        auto& B = x[1];
-        auto& C = x[2];
-        auto& D = x[3];
-        auto& x0 = point_[0];
-        auto& y0 = point_[1];
-        auto& z0 = point_[2];
-        residual[0] = (A * x0 + B * y0 + C * z0 + D) * (A * x0 + B * y0 + C * z0 + D) / (A * A + B * B + C * C);
-        return true;
-    }
-
-private:
-    const Eigen::Vector3d point_;
-};
+//struct PlaneFittingResidual {
+//    PlaneFittingResidual(Eigen::Vector3d point)
+//        : point_(std::move(point)) {}
+//
+//    template <typename T>
+//    bool operator()(const T* const x, T* residual) const {
+//        auto& A = x[0];
+//        auto& B = x[1];
+//        auto& C = x[2];
+//        auto& D = x[3];
+//        auto& x0 = point_[0];
+//        auto& y0 = point_[1];
+//        auto& z0 = point_[2];
+//        residual[0] = (A * x0 + B * y0 + C * z0 + D) * (A * x0 + B * y0 + C * z0 + D) / (A * A + B * B + C * C);
+//        return true;
+//    }
+//
+//private:
+//    const Eigen::Vector3d point_;
+//};
 
 //bool fit_plane(const std::vector<Eigen::Vector3d>& points, Eigen::Vector4d& plane) {
 //    ROS_INFO("Fitting plane. Points:");
@@ -878,7 +923,7 @@ void Estimator::optimization()
     ceres::Solver::Options options;
 
     options.linear_solver_type = ceres::DENSE_SCHUR;
-    //options.num_threads = 2;
+    options.num_threads = 4;
     options.trust_region_strategy_type = ceres::DOGLEG;
     options.max_num_iterations = NUM_ITERATIONS;
     //options.use_explicit_schur_complement = true;
@@ -892,8 +937,7 @@ void Estimator::optimization()
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     //cout << summary.BriefReport() << endl;
-    ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
-    ROS_DEBUG("solver costs: %f", t_solver.toc());
+    ROS_DEBUG("Iterations: %d, solver costs: %f", static_cast<int>(summary.iterations.size()), t_solver.toc());
 
     double2vector();
 
@@ -1092,6 +1136,7 @@ void Estimator::slideWindow()
                 Rs[i].swap(Rs[i + 1]);
 
                 std::swap(pre_integrations[i], pre_integrations[i + 1]);
+                std::swap(base_integrations[i], base_integrations[i + 1]);
 
                 Headers[i] = Headers[i + 1];
                 Ps[i].swap(Ps[i + 1]);
@@ -1107,6 +1152,7 @@ void Estimator::slideWindow()
             Bgs[WINDOW_SIZE] = Bgs[WINDOW_SIZE - 1];
 
             pre_integrations[WINDOW_SIZE] = std::make_shared<IntegrationBase>(acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]);
+            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration>();
 
             // remove image frames older than first keyframe
             double t_0 = Headers[0].stamp.toSec();
@@ -1132,6 +1178,9 @@ void Estimator::slideWindow()
 
                 pre_integrations[frame_count - 1]->push_back(tmp_dt, tmp_linear_acceleration, tmp_angular_velocity);
             }
+            for (auto& m : base_integrations[frame_count]->measurements) {
+                base_integrations[frame_count-1]->push_back(m);
+            }
 
             Headers[frame_count - 1] = Headers[frame_count];
             Ps[frame_count - 1] = Ps[frame_count];
@@ -1141,6 +1190,7 @@ void Estimator::slideWindow()
             Bgs[frame_count - 1] = Bgs[frame_count];
 
             pre_integrations[WINDOW_SIZE] = std::make_shared<IntegrationBase>(acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]);
+            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration>();
 
             slideWindowNew();
         }

@@ -1,14 +1,13 @@
 #pragma once
 
 #include <vector>
-using namespace std;
+#include <utility>
+using std::vector;
+using std::pair;
 
-#include <opencv2/opencv.hpp>
-//#include <opencv2/core/eigen.hpp>
-#include <eigen3/Eigen/Dense>
+#include <opencv2/core.hpp>
+#include <Eigen/Core>
 using namespace Eigen;
-
-#include <ros/console.h>
 
 class MotionEstimator
 {

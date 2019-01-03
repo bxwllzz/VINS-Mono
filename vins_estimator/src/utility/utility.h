@@ -4,20 +4,23 @@
 #include <cassert>
 #include <cstring>
 #include <vector>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Dense>
 
 class Utility
 {
   public:
+    // INPUT: rotate angle in axis x,y,z
+    // OUTPUT: quaternion (not normalized)
+    // LIMITATION: theta -> 0, sin(theta) -> theta, cos(theta) -> 1
     template <typename Derived>
     static Eigen::Quaternion<typename Derived::Scalar> deltaQ(const Eigen::MatrixBase<Derived> &theta)
     {
-        typedef typename Derived::Scalar Scalar_t;
+        typedef typename Derived::Scalar T;
 
-        Eigen::Quaternion<Scalar_t> dq;
-        Eigen::Matrix<Scalar_t, 3, 1> half_theta = theta;
-        half_theta /= static_cast<Scalar_t>(2.0);
-        dq.w() = static_cast<Scalar_t>(1.0);
+        Eigen::Quaternion<T> dq;
+        Eigen::Matrix<T, 3, 1> half_theta = theta;
+        half_theta /= T(2);
+        dq.w() = T(1);
         dq.x() = half_theta.x();
         dq.y() = half_theta.y();
         dq.z() = half_theta.z();
@@ -27,10 +30,11 @@ class Utility
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 3, 3> skewSymmetric(const Eigen::MatrixBase<Derived> &q)
     {
-        Eigen::Matrix<typename Derived::Scalar, 3, 3> ans;
-        ans << typename Derived::Scalar(0), -q(2), q(1),
-            q(2), typename Derived::Scalar(0), -q(0),
-            -q(1), q(0), typename Derived::Scalar(0);
+        typedef typename Derived::Scalar T;
+        Eigen::Matrix<T, 3, 3> ans;
+        ans << T(0), -q(2), q(1),
+            q(2), T(0), -q(0),
+            -q(1), q(0), T(0);
         return ans;
     }
 
@@ -47,20 +51,22 @@ class Utility
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qleft(const Eigen::QuaternionBase<Derived> &q)
     {
-        Eigen::Quaternion<typename Derived::Scalar> qq = positify(q);
-        Eigen::Matrix<typename Derived::Scalar, 4, 4> ans;
+        typedef typename Derived::Scalar T;
+        Eigen::Quaternion<T> qq = positify(q);
+        Eigen::Matrix<T, 4, 4> ans;
         ans(0, 0) = qq.w(), ans.template block<1, 3>(0, 1) = -qq.vec().transpose();
-        ans.template block<3, 1>(1, 0) = qq.vec(), ans.template block<3, 3>(1, 1) = qq.w() * Eigen::Matrix<typename Derived::Scalar, 3, 3>::Identity() + skewSymmetric(qq.vec());
+        ans.template block<3, 1>(1, 0) = qq.vec(), ans.template block<3, 3>(1, 1) = qq.w() * Eigen::Matrix<T, 3, 3>::Identity() + skewSymmetric(qq.vec());
         return ans;
     }
 
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qright(const Eigen::QuaternionBase<Derived> &p)
     {
-        Eigen::Quaternion<typename Derived::Scalar> pp = positify(p);
-        Eigen::Matrix<typename Derived::Scalar, 4, 4> ans;
+        typedef typename Derived::Scalar T;
+        Eigen::Quaternion<T> pp = positify(p);
+        Eigen::Matrix<T, 4, 4> ans;
         ans(0, 0) = pp.w(), ans.template block<1, 3>(0, 1) = -pp.vec().transpose();
-        ans.template block<3, 1>(1, 0) = pp.vec(), ans.template block<3, 3>(1, 1) = pp.w() * Eigen::Matrix<typename Derived::Scalar, 3, 3>::Identity() - skewSymmetric(pp.vec());
+        ans.template block<3, 1>(1, 0) = pp.vec(), ans.template block<3, 3>(1, 1) = pp.w() * Eigen::Matrix<T, 3, 3>::Identity() - skewSymmetric(pp.vec());
         return ans;
     }
 
@@ -177,7 +183,7 @@ class Utility
         Eigen::Matrix4d A = Eigen::Matrix4d::Zero();
         double sum_weight = 0;
         for (int i = 0; i < Qs.size(); i++) {
-            Eigen::Vector4d q_i = Qs[i];
+            Eigen::Vector4d q_i(Qs[i].x(), Qs[i].y(), Qs[i].z(), Qs[i].w());
             double w_i;
             if (weights.size() != A.size()) {
                 w_i = 1.0;
@@ -189,7 +195,79 @@ class Utility
         }
         A /= sum_weight;
 
-        return Eigen::Quaternion<Derived>();
+        Eigen::EigenSolver<Eigen::Matrix4d> es(A);
+        double max_eigenvalue = std::numeric_limits<double>::min();
+        Eigen::Vector4d eigenvector;
+        for (int i = 0; i < 4; i++) {
+            std::complex<double> eigenvalue = es.eigenvalues()[i];
+            if (std::norm(eigenvalue) > max_eigenvalue) {
+                max_eigenvalue = std::norm(eigenvalue);
+                eigenvector[0] = es.eigenvectors().col(i)[0].real();
+                eigenvector[1] = es.eigenvectors().col(i)[1].real();
+                eigenvector[2] = es.eigenvectors().col(i)[2].real();
+                eigenvector[3] = es.eigenvectors().col(i)[3].real();
+            }
+        }
+
+        return Eigen::Quaternion<Derived>(eigenvector[3], eigenvector[0], eigenvector[1], eigenvector[2]);
     }
 
+    static double meanAngle(std::vector<double> angles, std::vector<double> weights = {}, double range = 2 * M_PI) {
+        if (angles.empty())
+            throw std::invalid_argument("vector of angles should not be empty");
+        if (weights.size() != angles.size() && !weights.empty()) {
+            throw std::invalid_argument("vector of weights should be empty or has same size with vector of angles");
+        }
+
+        double sum_angle = 0;
+        double sum_weight = 0;
+        for (int i = 0; i < angles.size(); i++) {
+            double& angle = angles[i];
+            double weight;
+            if (i < weights.size())
+                weight = weights[i];
+            else
+                weight = 1;
+
+            if (sum_weight != 0) {
+                // divide angle to [sum_angle - pi, sum_angle + pi]
+                angle -= sum_angle / sum_weight;
+                angle = std::remainder(angle, range);
+                angle += sum_angle / sum_weight;
+            }
+
+            sum_angle += weight * angle;
+            sum_weight += weight;
+        }
+
+        double mean_angle = std::remainder(sum_angle / sum_weight, range);
+        return mean_angle;
+    }
+
+    // https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Weighted_sample_variance
+    static double weightedStd(std::vector<double> diffs, std::vector<double> weights = {}) {
+        if (diffs.empty())
+            throw std::invalid_argument("vector of diffs should not be empty");
+        if (weights.size() != diffs.size() && !weights.empty()) {
+            throw std::invalid_argument("vector of weights should be empty or has same size with vector of diffs");
+        }
+
+        double sum_weighted_var = 0;
+        double sum_weight = 0;
+        double sum_squared_weight = 0;
+        for (int i = 0; i < diffs.size(); i++) {
+            double& diff = diffs[i];
+            double weight;
+            if (i < weights.size())
+                weight = weights[i];
+            else
+                weight = 1;
+            sum_weighted_var += weight * std::pow(diff, 2);
+            sum_weight += weight;
+            sum_squared_weight += std::pow(weight, 2);
+        }
+//    double std = std::sqrt(sum_weighted_var / (sum_weight - sum_squared_weight / sum_weight));
+        double std = std::sqrt(sum_weighted_var / sum_weight);
+        return std;
+    }
 };
