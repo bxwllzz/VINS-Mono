@@ -156,15 +156,14 @@ void Estimator::processOdometry(double dt, const pair<Vector2d, double>& velocit
     base_integrations[frame_count]->push_back(measurement);
     tmp_base_integration->push_back(measurement);
     ROS_DEBUG(
-            "proc_odom: dt=%lf, velocity={%lf, %lf, %lf(%lf)}",
+            "proc_odom: dt=%lf, velocity={%lf, %lf, %lf}, gyro={%lf, %lf, %lf}",
             dt,
             velocity.first.x(),velocity.first.y(),velocity.second,
-            measurement.velocity.second);
+            imu_angular_velocity.x(), imu_angular_velocity.y(), imu_angular_velocity.z());
     wheel_imu_odom.push_back(measurement);
-//    wheel_imu_odom.push_back({dt, velocity});
+    wheel_imu_odom3D.push_back(measurement);
 
     wheel_only_odom.push_back({dt, velocity});
-//    wheel_only_odom.push_back(measurement);
 }
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)

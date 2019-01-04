@@ -128,8 +128,9 @@ public:
     std::shared_ptr<BaseOdometryIntegration> tmp_base_integration;
 
     // wheel only odometry
-    BaseOdometryIntegration wheel_only_odom;
-    BaseOdometryIntegration wheel_imu_odom;
+    BaseOdometryIntegration   wheel_only_odom;
+    BaseOdometryIntegration   wheel_imu_odom;
+    BaseOdometryIntegration3D wheel_imu_odom3D;
 
     //relocalization variable
     bool relocalization_info;

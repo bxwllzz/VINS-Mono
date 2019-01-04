@@ -88,10 +88,11 @@ gyr_w: 2.0e-5       # gyroscope bias random work noise standard deviation.     #
 g_norm: 9.805       # gravity magnitude
 
 #wheel odometry parameters
-wheel_n: 0.1         # wheel speed measurement stardard deviation per meter
+wheel_min_n: 0.002   # wheel odom mininum error stardard deviation (due to wheel encoder's disatema)
+wheel_n: 0.01        # wheel odom error stardard deviation per meter
 base_radius: 0.0     # (wheel speed when moving 1 m/s) / (wheel speed when rotating 1 rad/s), unit: meter/rad
-base_z_n: 0.01       # base position axis z noise standard deviation, unit: meter
-base_rp_n: 0.01      # base roll & pitch angle noise standard deviation, unit: rad
+base_z_n: 0.005      # base position axis z noise standard deviation, unit: meter
+base_rp_n: 0.001     # base roll & pitch angle noise standard deviation, unit: rad
 
 #loop closure parameters
 loop_closure: 1                    # start loop closure

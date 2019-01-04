@@ -45,6 +45,44 @@ void BaseOdometryIntegration::repropagate(const Eigen::Matrix3d& _scale) {
     }
 }
 
+BaseOdometryIntegration3D::BaseOdometryIntegration3D(const Eigen::Matrix3d& _scale)
+    : scale(_scale) {
+    //        ROS_WARN("new BaseOdometryIntegration %lX", (uint64_t)this);
+}
+
+void BaseOdometryIntegration3D::push_back(const MergedOdomMeasurement& m) {
+    measurements.emplace_back(m);
+    propagate(measurements.back());
+    //        ROS_INFO("%lX d_pos=(%f,%f) d_yaw=%f", (uint64_t)this, delta_p.x(), delta_p.y(), delta_yaw / M_PI * 180);
+}
+
+void BaseOdometryIntegration3D::propagate(const MergedOdomMeasurement& m) {
+    MergedOdomMeasurement un_m = m;
+    un_m.scale(scale);
+
+    Quaterniond q_i_j(1,
+                      un_m.imu_angular_velocity.x() * un_m.dt / 2,
+                      un_m.imu_angular_velocity.y() * un_m.dt / 2,
+                      un_m.imu_angular_velocity.z() * un_m.dt / 2);
+    Vector3d    t_i_j(un_m.velocity.first.x() * un_m.dt,
+                   un_m.velocity.first.y() * un_m.dt,
+                   0);
+
+    sum_dt += un_m.dt;
+    delta_t += delta_q * t_i_j;
+    delta_q = delta_q * q_i_j;
+}
+
+void BaseOdometryIntegration3D::repropagate(const Eigen::Matrix3d& _scale) {
+    scale   = _scale;
+    sum_dt  = 0;
+    delta_t = { 0, 0, 0 };
+    delta_q = { 1, 0, 0, 0 };
+    for (auto& m : measurements) {
+        propagate(m);
+    }
+}
+
 //#define USE_CIRCULAR
 
 pair<Eigen::Vector2d, double> BaseOdometryIntegration::differential(
@@ -122,7 +160,7 @@ pair<Vector2d, double> BaseOdometryIntegration::integration(double dt, const pai
         d_pos << cos(d_pos_angle) * d_pos_norm, sin(d_pos_angle) * d_pos_norm;
     }
 #else
-    d_pos = dt * linear_velocity;
+    d_pos           = dt * linear_velocity;
 #endif
 
     return std::make_pair(d_pos, d_yaw);

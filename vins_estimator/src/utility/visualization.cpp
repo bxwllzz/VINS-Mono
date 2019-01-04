@@ -7,14 +7,14 @@ using namespace ros;
 using namespace Eigen;
 ros::Publisher pub_odometry, pub_latest_odometry;
 ros::Publisher pub_path, pub_relo_path;
-ros::Publisher pub_vio_base_path, pub_wheel_path, pub_wheel_imu_path;
+ros::Publisher pub_vio_base_path, pub_wheel_path, pub_wheel_imu_path, pub_wheel_imu_path3D;
 ros::Publisher pub_point_cloud, pub_margin_cloud;
 ros::Publisher pub_key_poses;
 ros::Publisher pub_relo_relative_pose;
 ros::Publisher pub_camera_pose;
 ros::Publisher pub_camera_pose_visual;
 nav_msgs::Path path, relo_path;
-nav_msgs::Path vio_base_path, wheel_path, wheel_imu_path;
+nav_msgs::Path vio_base_path, wheel_path, wheel_imu_path, wheel_imu_path3D;
 
 ros::Publisher pub_keyframe_pose;
 ros::Publisher pub_keyframe_point;
@@ -36,6 +36,7 @@ void registerPub(ros::NodeHandle &n)
     pub_vio_base_path = n.advertise<nav_msgs::Path>("vio_base_path", 1000);
     pub_wheel_path = n.advertise<nav_msgs::Path>("wheel_path", 1000);
     pub_wheel_imu_path = n.advertise<nav_msgs::Path>("wheel_imu_path", 1000);
+    pub_wheel_imu_path3D = n.advertise<nav_msgs::Path>("wheel_imu_path3D", 1000);
     pub_odometry = n.advertise<nav_msgs::Odometry>("odometry", 1000);
     pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud", 1000);
     pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("history_cloud", 1000);
@@ -57,13 +58,92 @@ void registerPub(ros::NodeHandle &n)
 }
 
 void pubVelocityYaw(const Estimator &estimator, const std_msgs::Header& header) {
+
+    geometry_msgs::PoseStamped pose_stamped;
+
+    // publish wheel only odometry path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_odom";
+    pose_stamped.pose.position.x = estimator.wheel_only_odom.delta_p.x();
+    pose_stamped.pose.position.y = estimator.wheel_only_odom.delta_p.y();
+    pose_stamped.pose.position.z = 0;
+    pose_stamped.pose.orientation.x = 0;
+    pose_stamped.pose.orientation.y = 0;
+    pose_stamped.pose.orientation.z = sin(estimator.wheel_only_odom.delta_yaw / 2);
+    pose_stamped.pose.orientation.w = cos(estimator.wheel_only_odom.delta_yaw / 2);
+    wheel_path.header = header;
+    wheel_path.header.frame_id = "wheel_odom";
+    wheel_path.poses.emplace_back(pose_stamped);
+    pub_wheel_path.publish(wheel_path);
+
+    // publish wheel-imu-fusion odometry path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_imu_odom";
+    pose_stamped.pose.position.x = estimator.wheel_imu_odom.delta_p.x();
+    pose_stamped.pose.position.y = estimator.wheel_imu_odom.delta_p.y();
+    pose_stamped.pose.position.z = 0;
+    pose_stamped.pose.orientation.x = 0;
+    pose_stamped.pose.orientation.y = 0;
+    pose_stamped.pose.orientation.z = sin(estimator.wheel_imu_odom.delta_yaw / 2);
+    pose_stamped.pose.orientation.w = cos(estimator.wheel_imu_odom.delta_yaw / 2);
+    wheel_imu_path.header = header;
+    wheel_imu_path.header.frame_id = "wheel_imu_odom";
+    wheel_imu_path.poses.emplace_back(pose_stamped);
+    pub_wheel_imu_path.publish(wheel_imu_path);
+
+    // publish wheel-imu-fusion odometry 3D path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_imu_odom3D";
+    pose_stamped.pose.position.x = estimator.wheel_imu_odom3D.delta_t.x();
+    pose_stamped.pose.position.y = estimator.wheel_imu_odom3D.delta_t.y();
+    pose_stamped.pose.position.z = estimator.wheel_imu_odom3D.delta_t.z();
+    pose_stamped.pose.orientation.x = estimator.wheel_imu_odom3D.delta_q.x();
+    pose_stamped.pose.orientation.y = estimator.wheel_imu_odom3D.delta_q.y();
+    pose_stamped.pose.orientation.z = estimator.wheel_imu_odom3D.delta_q.z();
+    pose_stamped.pose.orientation.w = estimator.wheel_imu_odom3D.delta_q.w();
+    wheel_imu_path3D.header = header;
+    wheel_imu_path3D.header.frame_id = "wheel_imu_odom3D";
+    wheel_imu_path3D.poses.emplace_back(pose_stamped);
+    pub_wheel_imu_path3D.publish(wheel_imu_path3D);
+
+
+    static std_msgs::Header prev_header;
+    static Vector2d prev_vel_wheelimuodom;
     nav_msgs::Odometry msg;
     msg.header = header;
-    msg.pose.pose.position.x = estimator.wheel_only_odom.measurements.back().velocity.second;
-    msg.pose.pose.position.y = estimator.wheel_imu_odom.measurements.back().velocity.second;
-    msg.pose.pose.orientation.x = estimator.wheel_only_odom.delta_yaw / M_PI * 180;
-    msg.pose.pose.orientation.y = estimator.wheel_imu_odom.delta_yaw / M_PI * 180;
-    pub_velocity_yaw.publish(msg);
+//    msg.pose.pose.position.x = estimator.wheel_only_odom.measurements.back().velocity.second;
+//    msg.pose.pose.position.y = estimator.wheel_imu_odom.measurements.back().velocity.second;
+//    msg.pose.pose.orientation.x = estimator.wheel_only_odom.delta_yaw / M_PI * 180;
+//    msg.pose.pose.orientation.y = estimator.wheel_imu_odom.delta_yaw / M_PI * 180;
+    if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
+        // 世界坐标系下轮式里程计的速度
+//        double yaw = Utility::R2ypr(estimator.Rs[WINDOW_SIZE])[0] / 180 * M_PI;
+        double yaw = estimator.wheel_imu_odom.delta_yaw;
+        Rotation2Dd R_wheelimuodom_base(yaw);
+        Vector2d vel_wheelimuodom = R_wheelimuodom_base * estimator.wheel_imu_odom.measurements.back().velocity.first;
+        msg.twist.twist.linear.x = vel_wheelimuodom.x();
+        msg.twist.twist.linear.y = vel_wheelimuodom.y();
+
+        Quaterniond q_world_imu(estimator.Rs[WINDOW_SIZE]);
+        q_world_imu = q_world_imu * estimator.tmp_pre_integration->delta_q;
+        Quaterniond q_world_base(estimator.rib.inverse() * estimator.tmp_pre_integration->delta_q * estimator.rib);
+        Vector3d ypr = Utility::R2ypr(q_world_base.toRotationMatrix()) / 180 * M_PI;
+        double pitch = ypr[1];
+        double roll = ypr[2];
+        msg.twist.twist.angular.x = roll / M_PI * 180;
+        msg.twist.twist.angular.y = pitch / M_PI * 180;
+        msg.twist.twist.angular.z = yaw / M_PI * 180;
+
+        if (!prev_header.stamp.isZero()) {
+            Vector2d acc_wheelimuodom = (vel_wheelimuodom - prev_vel_wheelimuodom) / (header.stamp - prev_header.stamp).toSec();
+            msg.pose.pose.position.x = acc_wheelimuodom.x();
+            msg.pose.pose.position.y = acc_wheelimuodom.y();
+            msg.pose.pose.position.z = acc_wheelimuodom.norm();
+        }
+        prev_header = header;
+        prev_vel_wheelimuodom = vel_wheelimuodom;
+        pub_velocity_yaw.publish(msg);
+    }
 }
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, const std_msgs::Header &header)
@@ -133,37 +213,6 @@ void printStatistics(const Estimator &estimator, double t)
 
 void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
 {
-    geometry_msgs::PoseStamped pose_stamped;
-
-    // publish wheel only odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_odom";
-    pose_stamped.pose.position.x = estimator.wheel_only_odom.delta_p.x();
-    pose_stamped.pose.position.y = estimator.wheel_only_odom.delta_p.y();
-    pose_stamped.pose.position.z = 0;
-    pose_stamped.pose.orientation.x = 0;
-    pose_stamped.pose.orientation.y = 0;
-    pose_stamped.pose.orientation.z = sin(estimator.wheel_only_odom.delta_yaw / 2);
-    pose_stamped.pose.orientation.w = cos(estimator.wheel_only_odom.delta_yaw / 2);
-    wheel_path.header = header;
-    wheel_path.header.frame_id = "wheel_odom";
-    wheel_path.poses.emplace_back(pose_stamped);
-    pub_wheel_path.publish(wheel_path);
-
-    // publish wheel-imu-fusion odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_imu_odom";
-    pose_stamped.pose.position.x = estimator.wheel_imu_odom.delta_p.x();
-    pose_stamped.pose.position.y = estimator.wheel_imu_odom.delta_p.y();
-    pose_stamped.pose.position.z = 0;
-    pose_stamped.pose.orientation.x = 0;
-    pose_stamped.pose.orientation.y = 0;
-    pose_stamped.pose.orientation.z = sin(estimator.wheel_imu_odom.delta_yaw / 2);
-    pose_stamped.pose.orientation.w = cos(estimator.wheel_imu_odom.delta_yaw / 2);
-    wheel_imu_path.header = header;
-    wheel_imu_path.header.frame_id = "wheel_imu_odom";
-    wheel_imu_path.poses.emplace_back(pose_stamped);
-    pub_wheel_imu_path.publish(wheel_imu_path);
 
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
     {
@@ -415,6 +464,19 @@ void pubTF(const Estimator &estimator, const std_msgs::Header &header)
                             q_base_wheelimuodom.z(),
                             q_base_wheelimuodom.w()});
     br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom"));
+
+    // broadcast base_footprint -> wheel_imu_odom3D
+    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_t) * estimator.wheel_imu_odom3D.delta_q;
+    Affine3d T_base_wheelimuodom3D = T_wheelimuodom3D_base.inverse();
+    Quaterniond q_base_wheelimuodom3D(T_base_wheelimuodom3D.rotation());
+    transform.setOrigin({ T_base_wheelimuodom3D.translation().x(),
+                          T_base_wheelimuodom3D.translation().y(),
+                          T_base_wheelimuodom3D.translation().z() });
+    transform.setRotation({ q_base_wheelimuodom3D.x(),
+                            q_base_wheelimuodom3D.y(),
+                            q_base_wheelimuodom3D.z(),
+                            q_base_wheelimuodom3D.w() });
+    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom3D"));
 
     if( estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;

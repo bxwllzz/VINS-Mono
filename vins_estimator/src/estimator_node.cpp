@@ -529,12 +529,35 @@ public:
 
             {
                 lock_guard<mutex> lk2(m_estimator);
-                for (const auto& m : measurement.imu_msgs)
+
+#if 1
+                // process measurement by time order [optional]
+                auto it_imu = measurement.imu_msgs.begin();
+                auto it_odom = measurement.odom_aligned_msgs.begin();
+                while (it_imu != measurement.imu_msgs.end() && it_odom != measurement.odom_aligned_msgs.end()) {
+                    if (it_imu != measurement.imu_msgs.end()
+                        && (it_odom == measurement.odom_aligned_msgs.end()
+                            || it_imu->header.stamp <= it_odom->first.header.stamp + ros::Duration(estimator.td_bo)))
+                    {
+                        auto m = *it_imu;
+                        estimator.processIMU(m.dt, m.linear_acceleration, m.angular_velocity);
+                        it_imu++;
+                    } else {
+                        auto m = *it_odom;
+                        estimator.processOdometry(m.first.dt, m.first.velocity, m.second);
+                        pubVelocityYaw(estimator, m.first.header);
+                        it_odom++;
+                    }
+                }
+#else
+                // process measurement
+                for (const auto& m : measurement.imu_msgs) {
                     estimator.processIMU(m.dt, m.linear_acceleration, m.angular_velocity);
+                }
                 for (const auto& m : measurement.odom_aligned_msgs) {
                     estimator.processOdometry(m.first.dt, m.first.velocity, m.second);
-                    pubVelocityYaw(estimator, m.first.header);
                 }
+#endif
 
                 if (relo_msg != nullptr)
                 {

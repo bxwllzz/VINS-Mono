@@ -6,9 +6,11 @@ Panels:
       Expanded:
         - /Global Options1
         - /VIO1/TF1/Frames1
-        - /Wheel1
-        - /Wheel1/Wheel IMU path1
-      Splitter Ratio: 0.4651159942150116
+        - /Wheel-IMU Odometry1
+        - /Wheel-IMU Odometry1/TF1/Frames1
+        - /Wheel-IMU 3D Odometry1
+        - /Wheel-IMU 3D Odometry1/TF1/Frames1
+      Splitter Ratio: 0.6440678238868713
     Tree Height: 389
   - Class: rviz/Selection
     Name: Selection
@@ -211,36 +213,16 @@ Visualization Manager:
           Frame Timeout: 15
           Frames:
             All Enabled: false
-            base_footprint:
-              Value: true
-            body:
-              Value: true
-            camera:
-              Value: false
-            wheel_imu_odom:
-              Value: true
-            wheel_odom:
-              Value: true
-            world:
-              Value: true
           Marker Scale: 1
           Name: TF
           Show Arrows: false
           Show Axes: true
           Show Names: true
           Tree:
-            base_footprint:
-              wheel_odom:
-                {}
-            wheel_imu_odom:
-              {}
-            world:
-              body:
-                camera:
-                  {}
+            {}
           Update Interval: 0
           Value: true
-      Enabled: true
+      Enabled: false
       Name: VIO
     - Class: rviz/Group
       Displays:
@@ -491,6 +473,10 @@ Visualization Manager:
           Topic: /vins_estimator/wheel_path
           Unreliable: false
           Value: true
+      Enabled: false
+      Name: Wheel Odometry
+    - Class: rviz/Group
+      Displays:
         - Alpha: 1
           Buffer Length: 1
           Class: rviz/Path
@@ -514,17 +500,35 @@ Visualization Manager:
           Topic: /vins_estimator/wheel_imu_path
           Unreliable: false
           Value: true
+        - Class: rviz/TF
+          Enabled: false
+          Frame Timeout: 15
+          Frames:
+            All Enabled: false
+          Marker Scale: 1
+          Name: TF
+          Show Arrows: true
+          Show Axes: true
+          Show Names: true
+          Tree:
+            {}
+          Update Interval: 0
+          Value: false
+      Enabled: true
+      Name: Wheel-IMU Odometry
+    - Class: rviz/Group
+      Displays:
         - Alpha: 1
           Buffer Length: 1
           Class: rviz/Path
-          Color: 239; 41; 41
+          Color: 173; 127; 168
           Enabled: true
           Head Diameter: 0.30000001192092896
           Head Length: 0.20000000298023224
           Length: 0.30000001192092896
           Line Style: Lines
           Line Width: 0.029999999329447746
-          Name: VIO Base Path
+          Name: Wheel IMU path
           Offset:
             X: 0
             Y: 0
@@ -534,11 +538,48 @@ Visualization Manager:
           Radius: 0.029999999329447746
           Shaft Diameter: 0.10000000149011612
           Shaft Length: 0.10000000149011612
-          Topic: /vins_estimator/vio_base_path
+          Topic: /vins_estimator/wheel_imu_path3D
           Unreliable: false
           Value: true
+        - Class: rviz/TF
+          Enabled: false
+          Frame Timeout: 15
+          Frames:
+            All Enabled: false
+          Marker Scale: 1
+          Name: TF
+          Show Arrows: true
+          Show Axes: true
+          Show Names: true
+          Tree:
+            {}
+          Update Interval: 0
+          Value: false
       Enabled: true
-      Name: Wheel
+      Name: Wheel-IMU 3D Odometry
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 239; 41; 41
+      Enabled: false
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: VIO Base Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /vins_estimator/vio_base_path
+      Unreliable: false
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -562,25 +603,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 15.704524040222168
+      Distance: 2.5092382431030273
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.015869110822677612
-        Y: -0.01886129379272461
+        X: 0.003758549690246582
+        Y: -0.08361345529556274
         Z: 1.430511474609375e-6
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5697963237762451
+      Pitch: 0.6147971153259277
       Target Frame: <Fixed Frame>
       Value: XYOrbit (rviz)
-      Yaw: 3.3735806941986084
+      Yaw: 2.9685802459716797
     Saved: ~
 Window Geometry:
   Displays:
