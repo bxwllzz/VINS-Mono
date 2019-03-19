@@ -44,6 +44,7 @@ extern double WHEEL_N;
 extern double BASE_RADIUS;
 extern double BASE_Z_N;
 extern double BASE_RP_N;
+extern int USE_ODOM;
 
 void readParameters(ros::NodeHandle &n);
 

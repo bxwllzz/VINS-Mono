@@ -32,7 +32,9 @@
 
 void registerPub(ros::NodeHandle &n);
 
+//debug
 void pubVelocityYaw(const Estimator &estimator, const std_msgs::Header &header);
+void pubMixedOdom(const std_msgs::Header& header, const MixedOdomMeasurement& orig_m, const MixedOdomMeasurement& filted_m);
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, const std_msgs::Header &header);
 

@@ -29,7 +29,7 @@ public:
 
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
-    void processOdometry(double dt, const pair<Vector2d, double>& velocity, Vector3d imu_angular_velocity);
+    void processOdometry(double dt, const pair<Vector2d, double>& velocity, double constraint_error_vel, Vector3d imu_linear_acceleration, Vector3d imu_angular_velocity);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
@@ -81,13 +81,28 @@ public:
     Matrix3d rib;
     Vector3d tib;
     double td_bo;
-    std::shared_ptr<BaseOdometryIntegration> base_integrations[WINDOW_SIZE + 1];
+    std::shared_ptr<BaseOdometryIntegration3D> base_integrations[WINDOW_SIZE + 1];
 
+    // debug
+    Vector3d imu_predict_P = Vector3d::Zero();
+    Matrix3d imu_predict_R = Matrix3d::Identity();
+    Vector3d imu_predict_V = Vector3d::Zero();
+    Vector3d optimized_P = Vector3d::Zero();
+    Matrix3d optimized_R = Matrix3d::Identity();
+    Vector3d optimized_V = Vector3d::Zero();
+    Vector3d wheel_predict_P = Vector3d::Zero();
+    Matrix3d wheel_predict_R = Matrix3d::Zero();
+    double wheel_predict_dt = 0;
+    Vector3d wheel_imu_P = Vector3d::Zero();
+    Vector3d wheel_imu_V = Vector3d::Zero();
+    Vector3d wheel_imu_predict_P = Vector3d::Zero();
+    Vector3d wheel_imu_predict_V = Vector3d::Zero();
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
+    std::map<std::string, double> window_info;
     std::shared_ptr<IntegrationBase> pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;  // lastest acc and gyro
 
@@ -117,7 +132,7 @@ public:
 
     int loop_window_index;
 
-    MarginalizationInfo *last_marginalization_info;
+    MarginalizationInfo *last_marginalization_info = NULL;
     vector<double *> last_marginalization_parameter_blocks;
 
     /* Initialization */
@@ -125,12 +140,17 @@ public:
     map<double, ImageFrame> all_image_frame;
     // imu and base odom integration for current frame
     std::shared_ptr<IntegrationBase> tmp_pre_integration;
-    std::shared_ptr<BaseOdometryIntegration> tmp_base_integration;
+    std::shared_ptr<BaseOdometryIntegration3D> tmp_base_integration;
 
     // wheel only odometry
-    BaseOdometryIntegration   wheel_only_odom;
-    BaseOdometryIntegration   wheel_imu_odom;
+    BaseOdometryIntegration3D wheel_only_odom;
+    BaseOdometryIntegration3D wheel_imu_odom;
     BaseOdometryIntegration3D wheel_imu_odom3D;
+    WheelOdometryNoiseAnalyser wheel_odom_niose_analyser = { 10 };
+
+    // wheel imu fusion window
+    std::deque<std::shared_ptr<IntegrationBase>> wi_imu_integrations = {std::shared_ptr<IntegrationBase>()};
+    std::deque<std::shared_ptr<BaseOdometryIntegration3D>> wi_base_integrations = {std::shared_ptr<BaseOdometryIntegration3D>()};
 
     //relocalization variable
     bool relocalization_info;

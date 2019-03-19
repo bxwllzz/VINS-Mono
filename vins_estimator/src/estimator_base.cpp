@@ -37,7 +37,7 @@ bool Estimator::baseOdomAlign() {
         Eigen::Affine2d T_i0_i1 = T_i0.inverse() * T_i1;
         Eigen::Vector2d dp_vio = T_i0_i1.translation();
 
-        Eigen::Vector2d dp_bo = base_integrations[j]->delta_p;
+        Eigen::Vector2d dp_bo = base_integrations[j]->delta_p.head<2>();
 
         double dir_vio = atan2(dp_vio[1], dp_vio[0]);
         double dir_bo = atan2(dp_bo[1], dp_bo[0]);
@@ -66,8 +66,8 @@ bool Estimator::baseOdomAlign() {
     Eigen::Affine3d Tbi = Tib.inverse();
     Tbi.linear() = Utility::ypr2R(Eigen::Vector3d(mean_yaw / M_PI * 180, mean_pitch / M_PI * 180, mean_roll / M_PI * 180));
     Tib = Tbi.inverse();
-    rib = Tib.rotation();
-    tib = Tib.translation();
+//    rib = Tib.rotation();
+//    tib = Tib.translation();
 
     // save initialization result
 //    std::ofstream ofs("/home/bxwllzz/init_result.csv");

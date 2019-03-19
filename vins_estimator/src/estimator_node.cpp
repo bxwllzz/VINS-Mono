@@ -34,6 +34,7 @@ struct OdomMeasurement {
     std_msgs::Header header;
     double dt;
     std::pair<Eigen::Vector2d, double> velocity;
+    double constraint_error_vel;
 
     OdomMeasurement& scale(const Eigen::Matrix3d& scale) {
         Eigen::Vector3d result = scale * Eigen::Vector3d(velocity.first[0], velocity.first[1], velocity.second);
@@ -46,11 +47,12 @@ struct OdomMeasurement {
 struct OdomPoseMeasurement {
     std_msgs::Header header;
     std::pair<Eigen::Vector2d, double> pose;
+    double constraint_error;
 };
 
 struct Measurement {
     vector<ImuMeasurement> imu_msgs;
-    vector<pair<OdomMeasurement, Vector3d>> odom_aligned_msgs;
+    vector<pair<OdomMeasurement, pair<Vector3d, Vector3d>>> odom_aligned_msgs;
     sensor_msgs::PointCloudConstPtr img_msg;
 };
 
@@ -153,16 +155,17 @@ public:
 
 class OdomUtility {
 public:
-    static pair<Eigen::Vector2d, double> interplote_pose(const deque<OdomPoseMeasurement>& msgs, const ros::Time& t) {
+    static OdomPoseMeasurement interplote(const deque<OdomPoseMeasurement>& msgs, const ros::Time& t) {
         auto it = find_if(msgs.begin(), msgs.end(), [&](const OdomPoseMeasurement& msg) -> bool {
             return msg.header.stamp >= t;
         });
         if (it == msgs.end()) {
             throw std::range_error("OdomUtility::interplote_pose(): time is too new");
         }
-        pair<Eigen::Vector2d, double> res;
+        OdomPoseMeasurement res;
         if ((*it).header.stamp == t) {
-            res = (*it).pose;
+            res.pose = (*it).pose;
+            res.constraint_error = (*it).constraint_error;
         } else {
             if (it == msgs.begin()) {
                 throw std::range_error("OdomUtility::interplote_pose(): time is too old");
@@ -171,8 +174,14 @@ public:
             const auto& odom_j = *it;
             double dt_1 = (t - odom_i.header.stamp).toSec();
             double dt_2 = (odom_j.header.stamp - t).toSec();
+            res.header = odom_j.header;
+            res.header.seq = 0;
+            res.header.stamp = t;
             auto vel = BaseOdometryIntegration::differential(dt_1 + dt_2, odom_i.pose, odom_j.pose);
-            res = BaseOdometryIntegration::integration(dt_1, odom_i.pose, vel);
+            res.pose = BaseOdometryIntegration::integration(dt_1, odom_i.pose, vel);
+            double err_1 = odom_i.constraint_error;
+            double err_2 = odom_j.constraint_error;
+            res.constraint_error = (dt_1 * err_2 + dt_2 * err_1) / (dt_1 + dt_2);
         }
 
         return res;
@@ -341,7 +350,10 @@ public:
         Eigen::Vector3d ypr = Utility::R2ypr(Eigen::Quaterniond(qw, qx, qy, qz).toRotationMatrix());
         ROS_ASSERT(ypr[1] == 0 && ypr[2] == 0);
         double yaw = ypr[0] / 180.0 * M_PI;
-        OdomPoseMeasurement m = {.header=odom_msg->header, .pose={{px, py}, yaw}};
+        OdomPoseMeasurement m = {
+                .header=odom_msg->header,
+                .pose={{px, py}, yaw},
+                .constraint_error=odom_msg->pose.covariance[1]};
 
         {
             lock_guard<mutex> lk(m_buf);
@@ -450,16 +462,17 @@ public:
 
             auto odom_begin_t = prev_img_t + td_cam - td_odom;
             auto odom_end_t = m.img_msg->header.stamp + td_cam - td_odom;
-            auto odom_begin_pose = OdomUtility::interplote_pose(odom_buf, odom_begin_t);
-            auto odom_end_pose = OdomUtility::interplote_pose(odom_buf, odom_end_t);
+            auto odom_begin_pose = OdomUtility::interplote(odom_buf, odom_begin_t);
+            auto odom_end_pose = OdomUtility::interplote(odom_buf, odom_end_t);
+
             auto prev_odom_t = odom_begin_t;
             auto prev_odom_pose = odom_begin_pose;
             for (const auto& odom_msg : odom_buf) {
                 ros::Time odom_t;
-                pair<Vector2d, double> odom_pose;
+                OdomPoseMeasurement odom_pose;
                 if (odom_msg.header.stamp > odom_begin_t && odom_msg.header.stamp < odom_end_t) {
                     odom_t = odom_msg.header.stamp;
-                    odom_pose = odom_msg.pose;
+                    odom_pose = odom_msg;
                 } else if (odom_msg.header.stamp >= odom_end_t) {
                     odom_t = odom_end_t;
                     odom_pose = odom_end_pose;
@@ -471,11 +484,12 @@ public:
                 odom_m.header = odom_buf.back().header;
                 odom_m.header.stamp = odom_t;
                 odom_m.dt = (odom_t - prev_odom_t).toSec();
-                odom_m.velocity = BaseOdometryIntegration::differential(odom_m.dt, prev_odom_pose, odom_pose);
+                odom_m.velocity = BaseOdometryIntegration::differential(odom_m.dt, prev_odom_pose.pose, odom_pose.pose);
+                odom_m.constraint_error_vel = (odom_pose.constraint_error - prev_odom_pose.constraint_error) / odom_m.dt;
 //                ROS_INFO_STREAM(prev_odom_pose << " -> " << odom_pose << " = " << odom_m.velocity);
 
-                Vector3d imu_angular_velocity = ImuUtility::average(imu_buf, prev_odom_t, odom_t).second;
-                m.odom_aligned_msgs.emplace_back(odom_m, imu_angular_velocity);
+                auto acc_gyro = ImuUtility::average(imu_buf, prev_odom_t, odom_t);
+                m.odom_aligned_msgs.emplace_back(odom_m, acc_gyro);
 
                 prev_odom_t = odom_t;
                 prev_odom_pose = odom_pose;
@@ -530,7 +544,7 @@ public:
             {
                 lock_guard<mutex> lk2(m_estimator);
 
-#if 1
+#if 0
                 // process measurement by time order [optional]
                 auto it_imu = measurement.imu_msgs.begin();
                 auto it_odom = measurement.odom_aligned_msgs.begin();
@@ -555,7 +569,9 @@ public:
                     estimator.processIMU(m.dt, m.linear_acceleration, m.angular_velocity);
                 }
                 for (const auto& m : measurement.odom_aligned_msgs) {
-                    estimator.processOdometry(m.first.dt, m.first.velocity, m.second);
+                    estimator.processOdometry(m.first.dt, m.first.velocity, m.first.constraint_error_vel, m.second.first, m.second.second);
+                    pubVelocityYaw(estimator, m.first.header);
+//                    pubMixedOdom(m.first.header, estimator.wheel_imu_odom.measurements.back(), estimator.wheel_odom_niose_analyser.filted_.back());
                 }
 #endif
 

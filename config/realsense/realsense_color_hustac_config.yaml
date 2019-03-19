@@ -43,28 +43,30 @@ extrinsicTranslation: !!opencv-matrix
    data: [0.0970, 0.0084, -0.0002]
 
 # Extrinsic parameter between IMU and WheelOdometry (base_link).
-# q_odom2body = quaternion_from_euler(-91.0 / 180 * math.pi, -2.6 / 180 * math.pi, -90.0 / 180 * math.pi)
-# t_odom2body = (0.08, 0.06, 0.57)
-# T_body2odom =
-# [[  2.86741394e-16  -9.98970570e-01   4.53629881e-02   3.40813310e-02]
-#  [ -1.74524064e-02  -4.53560791e-02  -9.98818422e-01   5.73444058e-01]
-#  [  9.99847695e-01  -7.91693306e-04  -1.74344404e-02  -7.00026830e-02]
-#  [  0.00000000e+00   0.00000000e+00   0.00000000e+00   1.00000000e+00]]
+# from scipy.spatial.transform import Rotation as R
+# import math
+# 
+# RPY_odom2body = [-91.0 / 180 * math.pi, -2.6 / 180 * math.pi, -90.0 / 180 * math.pi]
+# p_odom2body = [0.085, 0.07, 0.575]
+# 
+# R_body2odom = R.from_euler('xyz', RPY_odom2body).inv()
+# p_body2odom = -R.from_euler('xyz', RPY_odom2body).inv().apply(p_odom2body)
+
 extimate_extrinsic_odom: 0
 #Rotation from odom frame to imu frame, imu^R_odom
 extrinsicOdomRotation: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 2.86741394e-16,  -9.98970570e-01,   4.53629881e-02,
-          -1.74524064e-02,  -4.53560791e-02,  -9.98818422e-01, 
-           9.99847695e-01,  -7.91693306e-04,  -1.74344404e-02]
+   data: [  1.38777878e-16,  -9.98970570e-01,   4.53629881e-02,
+           -1.74524064e-02,  -4.53560791e-02,  -9.98818422e-01,
+            9.99847695e-01,  -7.91693306e-04,  -1.74344404e-02]
 #Translation from camera frame to imu frame, imu^T_odom
 extrinsicOdomTranslation: !!opencv-matrix
    rows: 3
    cols: 1
    dt: d
-   data: [3.40813310e-02, 5.73444058e-01, -7.00026830e-02]
+   data: [ 0.04384422,  0.57897897, -0.07490683]
 
 #feature traker paprameters
 max_cnt: 150            # max feature number in feature tracking
@@ -93,6 +95,7 @@ wheel_n: 0.01        # wheel odom error stardard deviation per meter
 base_radius: 0.0     # (wheel speed when moving 1 m/s) / (wheel speed when rotating 1 rad/s), unit: meter/rad
 base_z_n: 0.005      # base position axis z noise standard deviation, unit: meter
 base_rp_n: 0.001     # base roll & pitch angle noise standard deviation, unit: rad
+use_odom: 2
 
 #loop closure parameters
 loop_closure: 1                    # start loop closure
@@ -102,7 +105,7 @@ pose_graph_save_path: "/home/hustac/output/pose_graph/" # save and load path
 
 #unsynchronization parameters
 estimate_td: 1                      # online estimate time offset between camera and imu
-td: 0.0                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+td: 0.013                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
 estimate_odom_td: 0                 # online estimate time offset between odom and imu
 odom_td: 0.0                        # initial value of time offset. unit: s. readed odom clock + td = real odom clock (IMU clock)
 
