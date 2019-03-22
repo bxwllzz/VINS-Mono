@@ -1,6 +1,7 @@
-#include <opencv2/sfm.hpp>
-#include <opencv2/calib3d.hpp>
-using cv::sfm::triangulatePoints;
+//#include <opencv2/sfm.hpp>
+//#include <opencv2/calib3d.hpp>
+#include <opencv2/opencv.hpp>
+//using cv::sfm::triangulatePoints;
 
 #include "solve_5pts.h"
 

@@ -41,9 +41,15 @@ void Estimator::setParameter()
     ProjectionTdFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     td = TD;
 
-    rib = RIO;
-    tib = TIO;
+    rio = RIO;
+    tio = TIO;
     td_bo = TD_ODOM;
+
+    auto ypr_world_worldbase = Utility::R2ypr(rio.inverse());
+    ypr_world_worldbase[1] = 0;
+    ypr_world_worldbase[2] = 0;
+    Quaterniond q_world_worldbase(Utility::ypr2R(ypr_world_worldbase).inverse());
+    init_orientation = q_world_worldbase * rio.inverse();
 }
 
 void Estimator::clearState()
@@ -75,8 +81,8 @@ void Estimator::clearState()
     all_image_frame.clear();
     td = TD;
 
-    rib = Matrix3d::Identity();
-    tib = Vector3d::Zero();
+    rio = Matrix3d::Identity();
+    tio = Vector3d::Zero();
     td_bo = TD_ODOM;
 
     if (last_marginalization_info != nullptr)
@@ -296,7 +302,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     all_image_frame[header.stamp.toSec()].pre_integration = std::move(tmp_pre_integration);
     all_image_frame[header.stamp.toSec()].base_integration = std::move(tmp_base_integration);
     tmp_pre_integration.reset(new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]});
-    tmp_base_integration.reset(new BaseOdometryIntegration3D());
+    tmp_base_integration.reset(new BaseOdometryIntegration3D(Eigen::Matrix3d::Identity(), Bgs[frame_count]));
 
     if(ESTIMATE_EXTRINSIC == 2)
     {
@@ -333,8 +339,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 // initialize ok, do non-linear optimization on this frame
                 just_initial = true;
                 baseOdomAlign();
+
+                init_orientation = Rs[0];
+                base_integration_before_init.repropagate(Eigen::Matrix3d::Identity(), Bgs[0]);
+
                 solver_flag = NON_LINEAR;
-                ROS_INFO("Initialization finish!");
+                ROS_INFO("Initialization finish! skipped %.3f sec", base_integration_before_init.sum_dt);
             }
         }
     }
@@ -344,7 +354,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         {
             auto i = WINDOW_SIZE - 1;
             auto j = WINDOW_SIZE;
-            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tib) * rib;
+            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tio) * rio;
             Eigen::Affine3d pose_i = Eigen::Translation3d(Ps[i]) * Rs[i] * T_imu_base;
             Eigen::Affine3d pose_j = Eigen::Translation3d(Ps[j]) * Rs[j] * T_imu_base;
             Eigen::Affine3d pose_ij = pose_i.inverse() * pose_j;
@@ -359,7 +369,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         {
             auto i = WINDOW_SIZE - 1;
             auto j = WINDOW_SIZE;
-            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tib) * rib;
+            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tio) * rio;
             Eigen::Affine3d pose_i = Eigen::Translation3d(Ps[i]) * Rs[i] * T_imu_base;
             Eigen::Affine3d pose_j = Eigen::Translation3d(wheel_imu_P) * Rs[j] * T_imu_base;
             Eigen::Affine3d pose_ij = pose_i.inverse() * pose_j;
@@ -423,7 +433,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         {
             auto i = WINDOW_SIZE - 1;
             auto j = WINDOW_SIZE;
-            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tib) * rib;
+            Eigen::Affine3d T_imu_base = Eigen::Translation3d(tio) * rio;
             Eigen::Affine3d pose_i = Eigen::Translation3d(Ps[i]) * Rs[i] * T_imu_base;
             Eigen::Affine3d pose_j = Eigen::Translation3d(Ps[j]) * Rs[j] * T_imu_base;
             Eigen::Affine3d pose_ij = pose_i.inverse() * pose_j;
@@ -1361,7 +1371,7 @@ void Estimator::slideWindow()
 {
     // debug
     wheel_imu_P = Ps[WINDOW_SIZE];
-    wheel_imu_V = Rs[WINDOW_SIZE] * rib * Eigen::Vector3d(base_integrations[WINDOW_SIZE]->measurements.back().velocity.first.x(),
+    wheel_imu_V = Rs[WINDOW_SIZE] * rio * Eigen::Vector3d(base_integrations[WINDOW_SIZE]->measurements.back().velocity.first.x(),
                                         base_integrations[WINDOW_SIZE]->measurements.back().velocity.first.y(), 0);
 
     TicToc t_margin;
@@ -1399,6 +1409,19 @@ void Estimator::slideWindow()
 //            if (solver_flag == NON_LINEAR) {
                 double t_0 = Headers[0].stamp.toSec();
                 auto it_0 = all_image_frame.find(t_0);
+
+                if (solver_flag != NON_LINEAR) {
+                    int n = 0;
+                    for (auto it = all_image_frame.begin(); it != it_0; it++) {
+                        if (it->second.base_integration) {
+                            for (const auto &m : it->second.base_integration->measurements)
+                                base_integration_before_init.push_back(m);
+                            n++;
+                        }
+                    }
+                    ROS_DEBUG("Throw image frame before init: %d", n);
+                }
+
                 all_image_frame.erase(all_image_frame.begin(), it_0);
 //            }
 

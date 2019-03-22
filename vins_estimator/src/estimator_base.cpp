@@ -62,7 +62,7 @@ bool Estimator::baseOdomAlign() {
              mean_pitch / M_PI * 180, std_pitch / M_PI * 180,
              mean_roll / M_PI * 180, std_roll / M_PI * 180);
 
-    Eigen::Affine3d Tib = Eigen::Translation3d(tib) * rib;
+    Eigen::Affine3d Tib = Eigen::Translation3d(tio) * rio;
     Eigen::Affine3d Tbi = Tib.inverse();
     Tbi.linear() = Utility::ypr2R(Eigen::Vector3d(mean_yaw / M_PI * 180, mean_pitch / M_PI * 180, mean_roll / M_PI * 180));
     Tib = Tbi.inverse();

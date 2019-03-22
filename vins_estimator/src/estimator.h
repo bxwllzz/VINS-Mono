@@ -78,8 +78,8 @@ public:
     Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bias of Gyro in sliding window, un_gyro = raw_gyro - Bg
     double td;                          // time delay between cam and imu, t_cam + td = t_imu
 
-    Matrix3d rib;
-    Vector3d tib;
+    Matrix3d rio;
+    Vector3d tio;
     double td_bo;
     std::shared_ptr<BaseOdometryIntegration3D> base_integrations[WINDOW_SIZE + 1];
 
@@ -141,6 +141,9 @@ public:
     // imu and base odom integration for current frame
     std::shared_ptr<IntegrationBase> tmp_pre_integration;
     std::shared_ptr<BaseOdometryIntegration3D> tmp_base_integration;
+
+    BaseOdometryIntegration3D base_integration_before_init;
+    Eigen::Quaterniond init_orientation;
 
     // wheel only odometry
     BaseOdometryIntegration3D wheel_only_odom;

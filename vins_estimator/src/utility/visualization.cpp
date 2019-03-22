@@ -130,6 +130,51 @@ void pubVelocityYaw(const Estimator &estimator, const std_msgs::Header& header) 
     wheel_imu_path3D.poses.emplace_back(pose_stamped);
     pub_wheel_imu_path3D.publish(wheel_imu_path3D);
 
+    static tf::TransformBroadcaster br;
+    tf::Transform transform;
+
+    // broadcast base_footprint -> wheel_odom
+    Affine3d T_wheelodom_base =
+            Translation3d(estimator.wheel_only_odom.delta_p)
+            * estimator.wheel_only_odom.delta_q;
+    Affine3d T_base_wheelodom = T_wheelodom_base.inverse();
+    transform.setOrigin({ T_base_wheelodom.translation().x(),
+                          T_base_wheelodom.translation().y(),
+                          T_base_wheelodom.translation().z() });
+    Quaterniond q_base_wheelodom(T_base_wheelodom.rotation());
+    transform.setRotation({ q_base_wheelodom.x(),
+                            q_base_wheelodom.y(),
+                            q_base_wheelodom.z(),
+                            q_base_wheelodom.w()});
+    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_odom"));
+
+    // broadcast base_footprint -> wheel_imu_odom
+    Affine3d T_wheelimuodom_base =
+            Translation3d(estimator.wheel_imu_odom.delta_p)
+            * estimator.wheel_imu_odom.delta_q;
+    Affine3d T_base_wheelimuodom = T_wheelimuodom_base.inverse();
+    transform.setOrigin({ T_base_wheelimuodom.translation().x(),
+                          T_base_wheelimuodom.translation().y(),
+                          T_base_wheelimuodom.translation().z() });
+    Quaterniond q_base_wheelimuodom(T_base_wheelimuodom.rotation());
+    transform.setRotation({ q_base_wheelimuodom.x(),
+                            q_base_wheelimuodom.y(),
+                            q_base_wheelimuodom.z(),
+                            q_base_wheelimuodom.w()});
+    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom"));
+
+    // broadcast base_footprint -> wheel_imu_odom3D
+    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_p) * estimator.wheel_imu_odom3D.delta_q;
+    Affine3d T_base_wheelimuodom3D = T_wheelimuodom3D_base.inverse();
+    Quaterniond q_base_wheelimuodom3D(T_base_wheelimuodom3D.rotation());
+    transform.setOrigin({ T_base_wheelimuodom3D.translation().x(),
+                          T_base_wheelimuodom3D.translation().y(),
+                          T_base_wheelimuodom3D.translation().z() });
+    transform.setRotation({ q_base_wheelimuodom3D.x(),
+                            q_base_wheelimuodom3D.y(),
+                            q_base_wheelimuodom3D.z(),
+                            q_base_wheelimuodom3D.w() });
+    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom3D"));
 
 //    static std_msgs::Header prev_header;
 //    static Vector3d prev_vel_wheelimuodom;
@@ -336,7 +381,7 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         pose_stamped.header = header;
         pose_stamped.header.frame_id = "world";
         Affine3d T_world_imu = Translation3d(estimator.Ps[WINDOW_SIZE]) * estimator.Rs[WINDOW_SIZE];
-        Affine3d T_imu_base = Translation3d(estimator.tib) * estimator.rib;
+        Affine3d T_imu_base = Translation3d(estimator.tio) * estimator.rio;
         Affine3d T_world_base = T_world_imu * T_imu_base;
         Quaterniond q_world_base = Quaterniond(T_world_base.linear());
         pose_stamped.pose.position.x = T_world_base.translation().x();
@@ -373,12 +418,12 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         // debug pub bias imu
         sensor_msgs::Imu msg;
         msg.header = header;
-        msg.angular_velocity.x = estimator.Bgs[WINDOW_SIZE - 1].x();
-        msg.angular_velocity.y = estimator.Bgs[WINDOW_SIZE - 1].y();
-        msg.angular_velocity.z = estimator.Bgs[WINDOW_SIZE - 1].z();
-        msg.linear_acceleration.x = estimator.Bas[WINDOW_SIZE - 1].x();
-        msg.linear_acceleration.y = estimator.Bas[WINDOW_SIZE - 1].y();
-        msg.linear_acceleration.z = estimator.Bas[WINDOW_SIZE - 1].z();
+        msg.angular_velocity.x = estimator.Bgs[WINDOW_SIZE].x();
+        msg.angular_velocity.y = estimator.Bgs[WINDOW_SIZE].y();
+        msg.angular_velocity.z = estimator.Bgs[WINDOW_SIZE].z();
+        msg.linear_acceleration.x = estimator.Bas[WINDOW_SIZE].x();
+        msg.linear_acceleration.y = estimator.Bas[WINDOW_SIZE].y();
+        msg.linear_acceleration.z = estimator.Bas[WINDOW_SIZE].z();
         pub_bias.publish(msg);
         // debug pub lastest keyframe translation
         nav_msgs::Odometry msg_imu_predict;
@@ -463,7 +508,7 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header) {
     {
         Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[0]) * estimator.Rs[0];
         Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
-        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tib) * estimator.rib;
+        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
         Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
         Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
         Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
@@ -483,7 +528,7 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header) {
         // calc vel_vio (latest keyframe)
         Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 2]) * estimator.Rs[WINDOW_SIZE - 2];
         Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
-        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tib) * estimator.rib;
+        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
         Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
         Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
         Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
@@ -597,68 +642,7 @@ void pubTF(const Estimator &estimator, const std_msgs::Header &header)
     static tf::TransformBroadcaster br;
     tf::Transform transform;
 
-    // broadcast base_footprint -> wheel_odom
-    Affine3d T_wheelodom_base =
-            Translation3d(estimator.wheel_only_odom.delta_p)
-            * estimator.wheel_only_odom.delta_q;
-    Affine3d T_base_wheelodom = T_wheelodom_base.inverse();
-    transform.setOrigin({ T_base_wheelodom.translation().x(),
-                          T_base_wheelodom.translation().y(),
-                          T_base_wheelodom.translation().z() });
-    Quaterniond q_base_wheelodom(T_base_wheelodom.rotation());
-    transform.setRotation({ q_base_wheelodom.x(),
-                            q_base_wheelodom.y(),
-                            q_base_wheelodom.z(),
-                            q_base_wheelodom.w()});
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom
-    Affine3d T_wheelimuodom_base =
-            Translation3d(estimator.wheel_imu_odom.delta_p)
-            * estimator.wheel_imu_odom.delta_q;
-    Affine3d T_base_wheelimuodom = T_wheelimuodom_base.inverse();
-    transform.setOrigin({ T_base_wheelimuodom.translation().x(),
-                          T_base_wheelimuodom.translation().y(),
-                          T_base_wheelimuodom.translation().z() });
-    Quaterniond q_base_wheelimuodom(T_base_wheelimuodom.rotation());
-    transform.setRotation({ q_base_wheelimuodom.x(),
-                            q_base_wheelimuodom.y(),
-                            q_base_wheelimuodom.z(),
-                            q_base_wheelimuodom.w()});
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom3D
-    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_p) * estimator.wheel_imu_odom3D.delta_q;
-    Affine3d T_base_wheelimuodom3D = T_wheelimuodom3D_base.inverse();
-    Quaterniond q_base_wheelimuodom3D(T_base_wheelimuodom3D.rotation());
-    transform.setOrigin({ T_base_wheelimuodom3D.translation().x(),
-                          T_base_wheelimuodom3D.translation().y(),
-                          T_base_wheelimuodom3D.translation().z() });
-    transform.setRotation({ q_base_wheelimuodom3D.x(),
-                            q_base_wheelimuodom3D.y(),
-                            q_base_wheelimuodom3D.z(),
-                            q_base_wheelimuodom3D.w() });
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom3D"));
-
-    if( estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
-        return;
     tf::Quaternion q;
-    // body frame
-    Vector3d correct_t;
-    Quaterniond correct_q;
-    correct_t = estimator.Ps[WINDOW_SIZE];
-    correct_q = estimator.Rs[WINDOW_SIZE];
-
-    transform.setOrigin(tf::Vector3(correct_t(0),
-                                    correct_t(1),
-                                    correct_t(2)));
-    q.setW(correct_q.w());
-    q.setX(correct_q.x());
-    q.setY(correct_q.y());
-    q.setZ(correct_q.z());
-    transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "body"));
-
     // camera frame
     transform.setOrigin(tf::Vector3(estimator.tic[0].x(),
                                     estimator.tic[0].y(),
@@ -671,15 +655,83 @@ void pubTF(const Estimator &estimator, const std_msgs::Header &header)
     br.sendTransform(tf::StampedTransform(transform, header.stamp, "body", "camera"));
 
     // base_footprint frame (T^imu_base)
-    transform.setOrigin(tf::Vector3(estimator.tib.x(),
-                                    estimator.tib.y(),
-                                    estimator.tib.z()));
-    q.setW(Quaterniond(estimator.rib).w());
-    q.setX(Quaterniond(estimator.rib).x());
-    q.setY(Quaterniond(estimator.rib).y());
-    q.setZ(Quaterniond(estimator.rib).z());
+    transform.setOrigin(tf::Vector3(estimator.tio.x(),
+                                    estimator.tio.y(),
+                                    estimator.tio.z()));
+    q.setW(Quaterniond(estimator.rio).w());
+    q.setX(Quaterniond(estimator.rio).x());
+    q.setY(Quaterniond(estimator.rio).y());
+    q.setZ(Quaterniond(estimator.rio).z());
     transform.setRotation(q);
     br.sendTransform(tf::StampedTransform(transform, header.stamp, "body", "base_footprint"));
+
+    // world_base to world_base_origin
+    auto t_origin_base = estimator.base_integration_before_init.delta_p;
+    auto q_origin_base = estimator.base_integration_before_init.delta_q;
+    auto q_base_origin = q_origin_base.inverse();
+    auto t_base_origin = q_base_origin * -t_origin_base;
+    transform.setOrigin(tf::Vector3(t_base_origin.x(),
+                                    t_base_origin.y(),
+                                    t_base_origin.z()));
+    q.setW(q_base_origin.w());
+    q.setX(q_base_origin.x());
+    q.setY(q_base_origin.y());
+    q.setZ(q_base_origin.z());
+    transform.setRotation(q);
+    br.sendTransform(tf::StampedTransform(transform, header.stamp, "world_base", "world_origin"));
+
+    if( estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
+        // body frame
+        transform.setOrigin(tf::Vector3(estimator.Ps[WINDOW_SIZE](0),
+                                        estimator.Ps[WINDOW_SIZE](1),
+                                        estimator.Ps[WINDOW_SIZE](2)));
+        Quaterniond q_world_body(estimator.Rs[WINDOW_SIZE]);
+        q.setW(q_world_body.w());
+        q.setX(q_world_body.x());
+        q.setY(q_world_body.y());
+        q.setZ(q_world_body.z());
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "body"));
+        // world (imu world) to world_base
+        auto t_world_worldbase = estimator.init_orientation * estimator.tio;
+        Quaterniond q_world_worldbase = estimator.init_orientation * Quaterniond(estimator.rio);
+        transform.setOrigin(tf::Vector3(t_world_worldbase.x(),
+                                        t_world_worldbase.y(),
+                                        t_world_worldbase.z()));
+        q.setW(q_world_worldbase.w());
+        q.setX(q_world_worldbase.x());
+        q.setY(q_world_worldbase.y());
+        q.setZ(q_world_worldbase.z());
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "world_base"));
+    } else {
+        transform.setOrigin(tf::Vector3(0, 0, 0));
+        auto ypr_world_body = Utility::R2ypr(estimator.rio.inverse());
+        ypr_world_body[0] = 0;
+        Quaterniond q_world_body(Utility::ypr2R(ypr_world_body));
+        q.setW(q_world_body.w());
+        q.setX(q_world_body.x());
+        q.setY(q_world_body.y());
+        q.setZ(q_world_body.z());
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "body"));
+
+        // world (imu world) to world_base
+        auto ypr_world_worldbase = Utility::R2ypr(estimator.rio.inverse());
+        ypr_world_worldbase[1] = 0;
+        ypr_world_worldbase[2] = 0;
+        Quaterniond q_world_worldbase(Utility::ypr2R(ypr_world_worldbase).inverse());
+        auto t_world_worldbase = q_world_body * estimator.tio;
+        transform.setOrigin(tf::Vector3(t_world_worldbase.x(),
+                                        t_world_worldbase.y(),
+                                        t_world_worldbase.z()));
+        q.setW(q_world_worldbase.w());
+        q.setX(q_world_worldbase.x());
+        q.setY(q_world_worldbase.y());
+        q.setZ(q_world_worldbase.z());
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "world_base"));
+    }
 
     nav_msgs::Odometry odometry;
     odometry.header = header;
