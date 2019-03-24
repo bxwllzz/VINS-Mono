@@ -43,14 +43,18 @@ extrinsicTranslation: !!opencv-matrix
    data: [0.0970, 0.0084, -0.0002]
 
 # Extrinsic parameter between IMU and WheelOdometry (base_link).
-# from scipy.spatial.transform import Rotation as R
-# import math
-# 
-# RPY_odom2body = [-91.0 / 180 * math.pi, -2.6 / 180 * math.pi, -90.0 / 180 * math.pi]
-# p_odom2body = [0.085, 0.07, 0.575]
-# 
-# R_body2odom = R.from_euler('xyz', RPY_odom2body).inv()
-# p_body2odom = -R.from_euler('xyz', RPY_odom2body).inv().apply(p_odom2body)
+# Calibrated T^wheelodom_imu:
+#     translation:  0.110219 0.0602086     0.575
+#     YPR:         -88.7982  -2.6373 -91.1273
+#  0.0209511 -0.0187043   0.999606   0.110219
+#  -0.998721  -0.046407  0.0200642  0.0602086
+#  0.0460134  -0.998747 -0.0196527      0.575
+#          0          0          0          1
+# Calibrated T^imu_wheelodom:
+#  0.0209511  -0.998721  0.0460134  0.0313647
+# -0.0187043  -0.046407  -0.998747   0.579135
+#   0.999606  0.0200642 -0.0196527  -0.100083
+#          0          0          0          1
 
 extimate_extrinsic_odom: 0
 #Rotation from odom frame to imu frame, imu^R_odom
@@ -58,15 +62,15 @@ extrinsicOdomRotation: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [  1.38777878e-16,  -9.98970570e-01,   4.53629881e-02,
-           -1.74524064e-02,  -4.53560791e-02,  -9.98818422e-01,
-            9.99847695e-01,  -7.91693306e-04,  -1.74344404e-02]
+   data: [  0.0209511,  -0.998721,   0.0460134,
+           -0.0187043,  -0.046407,  -0.998747,
+            0.999606,    0.0200642, -0.0196527]
 #Translation from camera frame to imu frame, imu^T_odom
 extrinsicOdomTranslation: !!opencv-matrix
    rows: 3
    cols: 1
    dt: d
-   data: [ 0.04384422,  0.57897897, -0.07490683]
+   data: [ 0.0313647,  0.579135, -0.100083]
 
 #feature traker paprameters
 max_cnt: 150            # max feature number in feature tracking
@@ -95,7 +99,7 @@ wheel_n: 0.01        # wheel odom error stardard deviation per meter
 base_radius: 0.0     # (wheel speed when moving 1 m/s) / (wheel speed when rotating 1 rad/s), unit: meter/rad
 base_z_n: 0.005      # base position axis z noise standard deviation, unit: meter
 base_rp_n: 0.001     # base roll & pitch angle noise standard deviation, unit: rad
-use_odom: 0          # 0: not use odom factor, 
+use_odom: 2          # 0: not use odom factor, 
                      # 1: use only inter-frame odom factor
                      # 2: use only begin-end-frame odom factor
                      # 3: use both inter-frame odom factor and begin-end-frame odom factor

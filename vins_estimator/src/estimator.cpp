@@ -522,9 +522,9 @@ bool Estimator::initialStructure()
         }
     }
 
-    if (!enough_move_ditance) {
-        return false;
-    }
+//    if (!enough_move_ditance) {
+//        return false;
+//    }
 
     // global sfm
     Quaterniond Q[frame_count + 1];

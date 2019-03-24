@@ -2,18 +2,27 @@ cmake_minimum_required(VERSION 2.8.3)
 project(vins_estimator)
 
 set(CMAKE_BUILD_TYPE "RelWithDebInfo")
-set(CMAKE_CXX_FLAGS "-std=c++11")
+if("$ENV{ROS_DISTRO}" STREQUAL "kinetic")
+    set(CMAKE_CXX_STANDARD 11)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    message("cpp11")
+elseif("$ENV{ROS_DISTRO}" STREQUAL "melodic")
+    set(CMAKE_CXX_STANDARD 14)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    message("cpp14")
+endif()
 #-DEIGEN_USE_MKL_ALL")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
-find_program(CCACHE_FOUND ccache)
-if(CCACHE_FOUND)
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-    message(WARNING "Using ccache")
-endif(CCACHE_FOUND)
+#find_program(CCACHE_FOUND ccache)
+#if(CCACHE_FOUND)
+#    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
+#    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+#    message(WARNING "Using ccache")
+#endif(CCACHE_FOUND)
 
 find_package(catkin REQUIRED COMPONENTS
+    rosbag
     roscpp
     std_msgs
     geometry_msgs
@@ -59,7 +68,12 @@ add_executable(vins_estimator
     src/initial/initial_ex_rotation.cpp
     )
 
+target_link_libraries(vins_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})
 
-target_link_libraries(vins_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES}) 
+add_executable(excalib
+    src/excalib.cpp
+    src/utility/utility.cpp
+    src/odom-vio_ex_calib.cpp
+)
 
-
+target_link_libraries(excalib ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})

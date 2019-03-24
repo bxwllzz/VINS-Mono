@@ -395,7 +395,7 @@ public:
             if (odom_buf.empty() || odom_buf.back().header.stamp + td_odom < imu_buf.front()->header.stamp) {
                 throw std::range_error("wait for odom before cam");
             }
-            const auto& first_odom = *find_if(odom_buf.begin(), odom_buf.end(), [&](auto odom_msg) {
+            const auto& first_odom = *find_if(odom_buf.begin(), odom_buf.end(), [&](const OdomPoseMeasurement& odom_msg) {
                 return odom_msg.header.stamp + td_odom >= imu_buf.front()->header.stamp;
             });
             // wait for cam
@@ -500,7 +500,7 @@ public:
         }
 
         // delete outdated
-        const auto& odom_before_img_t = (*find_if(odom_buf.rbegin(), odom_buf.rend(), [&](auto odom_msg) {
+        const auto& odom_before_img_t = (*find_if(odom_buf.rbegin(), odom_buf.rend(), [&](const OdomPoseMeasurement& odom_msg) {
             return odom_msg.header.stamp + td_odom <= img_msg->header.stamp + td_cam;
         })).header.stamp;
         while (odom_buf.size() > 2 && odom_buf[2].header.stamp <= odom_before_img_t) {
