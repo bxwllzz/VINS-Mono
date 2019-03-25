@@ -99,10 +99,12 @@ wheel_n: 0.01        # wheel odom error stardard deviation per meter
 base_radius: 0.0     # (wheel speed when moving 1 m/s) / (wheel speed when rotating 1 rad/s), unit: meter/rad
 base_z_n: 0.005      # base position axis z noise standard deviation, unit: meter
 base_rp_n: 0.001     # base roll & pitch angle noise standard deviation, unit: rad
-use_odom: 2          # 0: not use odom factor, 
+use_odom: 2          # 0: not use odom factor (as original VINS-Mono)
                      # 1: use only inter-frame odom factor
                      # 2: use only begin-end-frame odom factor
                      # 3: use both inter-frame odom factor and begin-end-frame odom factor
+init_use_odom: 1     # 0: use IMU and camera to init estimator (as original VINS-Mono)
+                     # 1: use IMU and wheel odometry to init estimator
 
 #loop closure parameters
 loop_closure: 0                    # start loop closure

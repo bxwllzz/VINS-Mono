@@ -282,11 +282,11 @@ void printStatistics(const Estimator &estimator, double t)
 {
     if (estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;
-//    printf("pos:%6.3f %6.3f %6.3f vel:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
-//           estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z(),
-//           estimator.Vs[WINDOW_SIZE].x(), estimator.Vs[WINDOW_SIZE].y(), estimator.Vs[WINDOW_SIZE].z(),
-//           estimator.Bas[WINDOW_SIZE].x(), estimator.Bas[WINDOW_SIZE].y(), estimator.Bas[WINDOW_SIZE].z(),
-//           estimator.Bgs[WINDOW_SIZE].x(), estimator.Bgs[WINDOW_SIZE].y(), estimator.Bgs[WINDOW_SIZE].z());
+    printf("pos:%6.3f %6.3f %6.3f vel:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
+           estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z(),
+           estimator.Vs[WINDOW_SIZE].x(), estimator.Vs[WINDOW_SIZE].y(), estimator.Vs[WINDOW_SIZE].z(),
+           estimator.Bas[WINDOW_SIZE].x(), estimator.Bas[WINDOW_SIZE].y(), estimator.Bas[WINDOW_SIZE].z(),
+           estimator.Bgs[WINDOW_SIZE].x(), estimator.Bgs[WINDOW_SIZE].y(), estimator.Bgs[WINDOW_SIZE].z());
     ROS_DEBUG_STREAM("position: " << estimator.Ps[WINDOW_SIZE].transpose());
     ROS_DEBUG_STREAM("orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
     for (int i = 0; i < NUM_OF_CAM; i++)
@@ -503,49 +503,51 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header) {
     pub_key_poses.publish(key_poses);
 
     // debug: print scale_vio VS scale_wheel
-    std::vector<double> scales;
-    // calc scale_vio
-    {
-        Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[0]) * estimator.Rs[0];
-        Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
-        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
-        Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
-        Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
-        Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
-        Eigen::Vector2d t_vio = T_vio.translation().head(2);
-        scales.push_back(t_vio.norm());
-    }
-    // calc scale_wheel
-    {
-        Eigen::Affine3d T_wheel = Eigen::Translation3d(Eigen::Vector3d::Zero()) * Eigen::Matrix3d::Zero();
-        for (int i = 1; i < WINDOW_SIZE; i++) {
-            T_wheel = T_wheel * (Eigen::Translation3d(estimator.base_integrations[i]->delta_p) * estimator.base_integrations[i]->delta_q);
+    if (estimator.solver_flag == estimator.NON_LINEAR) {
+        std::vector<double> scales;
+        // calc scale_vio
+        {
+            Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[0]) * estimator.Rs[0];
+            Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
+            Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
+            Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
+            Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
+            Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
+            Eigen::Vector2d t_vio = T_vio.translation().head(2);
+            scales.push_back(t_vio.norm());
         }
-        Eigen::Vector3d t_wheel = T_wheel.translation();
-        scales.push_back(t_wheel.norm());
-    }
-    {
-        // calc vel_vio (latest keyframe)
-        Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 2]) * estimator.Rs[WINDOW_SIZE - 2];
-        Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
-        Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
-        Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
-        Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
-        Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
-        Eigen::Vector2d t_vio = T_vio.translation().head(2);
-        scales.push_back(t_vio.norm() / estimator.pre_integrations[WINDOW_SIZE - 1]->sum_dt);
-        // calc vel_wheel (latest keyframe)
-        scales.push_back(estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.norm() / estimator.base_integrations[WINDOW_SIZE - 1]->sum_dt);
-        // latest keyframe translation err between vio and wheel-odom
-        // calc x error
-        scales.push_back(t_vio.x() - estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.x());
-        // calc y error
-        scales.push_back(t_vio.y() - estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.y());
-    }
+        // calc scale_wheel
+        {
+            Eigen::Affine3d T_wheel = Eigen::Translation3d(Eigen::Vector3d::Zero()) * Eigen::Matrix3d::Zero();
+            for (int i = 1; i < WINDOW_SIZE; i++) {
+                T_wheel = T_wheel * (Eigen::Translation3d(estimator.base_integrations[i]->delta_p) * estimator.base_integrations[i]->delta_q);
+            }
+            Eigen::Vector3d t_wheel = T_wheel.translation();
+            scales.push_back(t_wheel.norm());
+        }
+        {
+            // calc vel_vio (latest keyframe)
+            Eigen::Affine3d pose_imu_0 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 2]) * estimator.Rs[WINDOW_SIZE - 2];
+            Eigen::Affine3d pose_imu_1 = Eigen::Translation3d(estimator.Ps[WINDOW_SIZE - 1]) * estimator.Rs[WINDOW_SIZE - 1];
+            Eigen::Affine3d T_imu_base = Eigen::Translation3d(estimator.tio) * estimator.rio;
+            Eigen::Affine3d pose_vio_0 = pose_imu_0 * T_imu_base;
+            Eigen::Affine3d pose_vio_1 = pose_imu_1 * T_imu_base;
+            Eigen::Affine3d T_vio = pose_vio_0.inverse() * pose_vio_1;
+            Eigen::Vector2d t_vio = T_vio.translation().head(2);
+            scales.push_back(t_vio.norm() / estimator.pre_integrations[WINDOW_SIZE - 1]->sum_dt);
+            // calc vel_wheel (latest keyframe)
+            scales.push_back(estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.norm() / estimator.base_integrations[WINDOW_SIZE - 1]->sum_dt);
+            // latest keyframe translation err between vio and wheel-odom
+            // calc x error
+            scales.push_back(t_vio.x() - estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.x());
+            // calc y error
+            scales.push_back(t_vio.y() - estimator.base_integrations[WINDOW_SIZE - 1]->delta_p.y());
+        }
 
-    std_msgs::Float64MultiArray msg;
-    msg.data = scales;
-    pub_scale.publish(msg);
+        std_msgs::Float64MultiArray msg;
+        msg.data = scales;
+        pub_scale.publish(msg);
+    }
 }
 
 void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)

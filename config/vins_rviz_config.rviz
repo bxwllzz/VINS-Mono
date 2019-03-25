@@ -560,8 +560,9 @@ Visualization Manager:
                 camera:
                   {}
               world_base:
-                world_origin:
-                  {}
+                {}
+            world_origin:
+              {}
           Update Interval: 0
           Value: true
       Enabled: true
@@ -673,8 +674,9 @@ Visualization Manager:
                 camera:
                   {}
               world_base:
-                world_origin:
-                  {}
+                {}
+            world_origin:
+              {}
           Update Interval: 0
           Value: true
       Enabled: true
@@ -684,7 +686,7 @@ Visualization Manager:
     Background Color: 0; 0; 0
     Default Light: true
     Fixed Frame: world_origin
-    Frame Rate: 120
+    Frame Rate: 60
   Name: root
   Tools:
     - Class: rviz/MoveCamera
@@ -702,25 +704,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 13.22797966003418
+      Distance: 17.467554092407227
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.6303168535232544
-        Y: 0.12591876089572906
-        Z: 1.1346564861014485e-6
+        X: -0.08304788917303085
+        Y: -0.17780524492263794
+        Z: 5.9030280681326985e-6
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.859794557094574
+      Pitch: 0.6647972464561462
       Target Frame: <Fixed Frame>
       Value: XYOrbit (rviz)
-      Yaw: 2.591113328933716
+      Yaw: 3.1010868549346924
     Saved: ~
 Window Geometry:
   Displays:

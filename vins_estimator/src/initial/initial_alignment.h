@@ -40,4 +40,5 @@ void base_imu_alignment_fixed_scale(const vector<pair<std::shared_ptr<Integratio
                                     const Matrix3d& R_imu_base, const Vector3d& t_imu_base,
                                     VectorXd &x, Vector3d &g, double &avg_err_p, double &avg_err_v);
 
+bool WheelOdomIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x);
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x);

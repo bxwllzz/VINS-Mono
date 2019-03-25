@@ -171,17 +171,27 @@ void Estimator::processOdometry(
 
     wi_base_integrations.back()->push_back(
             MixedOdomMeasurement(dt, velocity, constraint_error_vel, imu_angular_velocity, imu_linear_acceleration));
-    tmp_base_integration->push_back(
-            MixedOdomMeasurement(dt, velocity, constraint_error_vel, imu_angular_velocity, imu_linear_acceleration));
+    if (solver_flag == INITIAL) {
+        // use wheel odmetry angular velocity
+        tmp_base_integration->push_back(
+                MixedOdomMeasurement(
+                        dt, velocity, constraint_error_vel,
+                        RIO * Vector3d(0, 0, velocity.second),
+                        {0, 0, 0}));
+    } else {
+        tmp_base_integration->push_back(
+                MixedOdomMeasurement(dt, velocity, constraint_error_vel, imu_angular_velocity,
+                                     imu_linear_acceleration));
+    }
     base_integrations[frame_count]->push_back(
             MixedOdomMeasurement(dt, velocity, constraint_error_vel, imu_angular_velocity, imu_linear_acceleration));
 //    ROS_INFO_STREAM("wheel covariance: " << std::endl << base_integrations[frame_count]->covariance);
 
-    ROS_DEBUG(
-            "proc_odom: dt=%lf, velocity={%lf, %lf, %lf}, gyro={%lf, %lf, %lf}",
-            dt,
-            velocity.first.x(),velocity.first.y(),velocity.second,
-            imu_angular_velocity.x(), imu_angular_velocity.y(), imu_angular_velocity.z());
+//    ROS_DEBUG(
+//            "proc_odom: dt=%lf, velocity={%lf, %lf, %lf}, gyro={%lf, %lf, %lf}",
+//            dt,
+//            velocity.first.x(),velocity.first.y(),velocity.second,
+//            imu_angular_velocity.x(), imu_angular_velocity.y(), imu_angular_velocity.z());
 
 //    imu_angular_velocity -= Bgs[WINDOW_SIZE];
 
@@ -260,36 +270,38 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 //            wi_base_integrations.pop_front();
 //        }
 //    }
-    if (solver_flag == NON_LINEAR) {
-        vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> frames;
-        double sum_dt = 0;
-        double sum_distance = 0;
-        for (const auto& kv : all_image_frame) {
-//            frames.emplace_back(make_pair(kv.second.pre_integration, kv.second.base_integration));
-            frames.emplace_back(make_pair(make_shared<IntegrationBase>(*(kv.second.pre_integration)), kv.second.base_integration));
-            frames.back().first->repropagate(Vector3d::Zero(), frames.back().first->linearized_bg);
-            if (!frames.empty()) {
-                sum_distance += frames.back().second->delta_p.norm();
-                sum_dt += frames.back().second->sum_dt;
-            }
-        }
-        VectorXd tmp_x;
-        Vector3d tmp_g;
-        double tmp_s;
-        double avg_err_p;
-        double avg_err_v;
-        base_imu_alignment(frames, RIO, TIO, tmp_x, tmp_g, tmp_s, avg_err_p, avg_err_v);
-        base_imu_alignment_fixed_scale(frames, RIO, TIO, tmp_x, tmp_g, avg_err_p, avg_err_v);
-        window_info["dt"] = sum_dt;
-        window_info["dp"] = sum_distance;
-        window_info["err_p"] = avg_err_p;
-        window_info["err_v"] = avg_err_v;
-        window_info["scale"] = tmp_s;
-        window_info["g"] = tmp_g.norm();
-        window_info["gx"] = tmp_g.x();
-        window_info["gy"] = tmp_g.y();
-        window_info["gz"] = tmp_g.z();
-    }
+//    if (solver_flag == NON_LINEAR) {
+//        vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> frames;
+//        double sum_dt = 0;
+//        double sum_distance = 0;
+//        for (const auto& kv : all_image_frame) {
+////            frames.emplace_back(make_pair(kv.second.pre_integration, kv.second.base_integration));
+//            if (!kv.second.pre_integration || !kv.second.base_integration)
+//                continue;
+//            frames.emplace_back(make_pair(make_shared<IntegrationBase>(*(kv.second.pre_integration)), kv.second.base_integration));
+//            frames.back().first->repropagate(Vector3d::Zero(), frames.back().first->linearized_bg);
+//            if (!frames.empty()) {
+//                sum_distance += frames.back().second->delta_p.norm();
+//                sum_dt += frames.back().second->sum_dt;
+//            }
+//        }
+//        VectorXd tmp_x;
+//        Vector3d tmp_g;
+//        double tmp_s;
+//        double avg_err_p;
+//        double avg_err_v;
+//        base_imu_alignment(frames, RIO, TIO, tmp_x, tmp_g, tmp_s, avg_err_p, avg_err_v);
+//        base_imu_alignment_fixed_scale(frames, RIO, TIO, tmp_x, tmp_g, avg_err_p, avg_err_v);
+//        window_info["dt"] = sum_dt;
+//        window_info["dp"] = sum_distance;
+//        window_info["err_p"] = avg_err_p;
+//        window_info["err_v"] = avg_err_v;
+//        window_info["scale"] = tmp_s;
+//        window_info["g"] = tmp_g.norm();
+//        window_info["gx"] = tmp_g.x();
+//        window_info["gy"] = tmp_g.y();
+//        window_info["gz"] = tmp_g.z();
+//    }
 
     ROS_DEBUG("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
     ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
@@ -457,6 +469,17 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
+
+    if (INIT_USE_ODOM == 1) {
+        if (wheelOdomInitialAlign())
+            return true;
+        else
+        {
+            ROS_INFO("misalign wheel odom with IMU");
+            return false;
+        }
+    }
+
     //check imu observibility
     {
         map<double, ImageFrame>::iterator frame_it;
@@ -691,6 +714,64 @@ bool Estimator::initialStructure()
 //}
 
 //bool solve_base_axiz_z(const std::vector<Eigen::Quaterniond>& rots, const Eigen::Vector4d& plane, )
+
+bool Estimator::wheelOdomInitialAlign() {
+    TicToc t_g;
+    VectorXd x;
+    //solve scale
+    bool result = WheelOdomIMUAlignment(all_image_frame, Bgs, g, x);
+    if(!result)
+    {
+        ROS_WARN("solve g failed!");
+        return false;
+    }
+    ROS_INFO_STREAM("g0: " << g.transpose());
+
+    // init IMU pose
+    Ps[0] = {0, 0, 0};
+    Vector3d ypr_w_B0 = Utility::R2ypr(Utility::g2R(g));
+    ypr_w_B0[0] = 0;
+    Rs[0] = Utility::ypr2R(ypr_w_B0);
+    ROS_INFO_STREAM("R^W_B0: " << Utility::R2ypr(Rs[0]).transpose());
+
+    g = Rs[0] * g;
+    Affine3d T_B_O = Translation3d(tio) * rio;
+
+    for (int i = 0; i <= WINDOW_SIZE; i++) {
+        // repropagate with refined bias gyr
+        if (pre_integrations[i])
+            pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
+        if (base_integrations[i])
+            base_integrations[i]->repropagate(Matrix3d::Identity(), Bgs[i]);
+        // p & R comes from wheel odom and IMU
+        if (i >= 1) {
+            Affine3d T_w_Bi = Translation3d(Ps[i-1]) * Rs[i-1];
+            Affine3d T_Oi_Oj = Translation3d(base_integrations[i]->delta_p) * base_integrations[i]->delta_q.toRotationMatrix();
+            Affine3d T_w_Bj = T_w_Bi * T_B_O * T_Oi_Oj * T_B_O.inverse();
+            Ps[i] = T_w_Bj.translation();
+            Rs[i] = T_w_Bj.linear();
+            all_image_frame[Headers[i].stamp.toSec()].is_key_frame = true;
+        }
+        // set Vs to solved result
+        Vs[i] = Rs[i] * x.segment<3>(i * 3);
+    }
+
+    // clear depth estimation of all features
+    VectorXd dep = f_manager.getDepthVector();
+    for (int i = 0; i < dep.size(); i++)
+        dep[i] = -1;
+    f_manager.clearDepth(dep);
+
+    // triangulate on cam pose , no tic
+    Vector3d TIC_TMP[NUM_OF_CAM];
+    for(int i = 0; i < NUM_OF_CAM; i++)
+        TIC_TMP[i].setZero();
+    ric[0] = RIC[0];
+    f_manager.setRic(ric);
+    f_manager.triangulate(Ps, &(tic[0]), &(ric[0]));
+
+    return true;
+}
 
 bool Estimator::visualInitialAlign()
 {
@@ -1176,16 +1257,16 @@ void Estimator::optimization()
     double2vector();
 
     // evaluate odom residual
-    if (USE_ODOM == 1 || USE_ODOM == 3)
-        for (int i = 0; i < WINDOW_SIZE; i++)
-        {
-            int j = i + 1;
-    //        ROS_INFO_STREAM("P covariance:" << std::endl << base_integrations[j]->covariance);
-            base_integrations[j]->evaluate(Ps[i], Quaterniond(Rs[i]), Bgs[i], Ps[j], Quaterniond(Rs[j]), true);
-        }
-    if (USE_ODOM == 2 || USE_ODOM == 3) {
-        long_base_integration->evaluate(Ps[0], Quaterniond(Rs[0]), Bgs[0], Ps[WINDOW_SIZE], Quaterniond(Rs[WINDOW_SIZE]), true);
-    }
+//    if (USE_ODOM == 1 || USE_ODOM == 3)
+//        for (int i = 0; i < WINDOW_SIZE; i++)
+//        {
+//            int j = i + 1;
+//    //        ROS_INFO_STREAM("P covariance:" << std::endl << base_integrations[j]->covariance);
+//            base_integrations[j]->evaluate(Ps[i], Quaterniond(Rs[i]), Bgs[i], Ps[j], Quaterniond(Rs[j]), true);
+//        }
+//    if (USE_ODOM == 2 || USE_ODOM == 3) {
+//        long_base_integration->evaluate(Ps[0], Quaterniond(Rs[0]), Bgs[0], Ps[WINDOW_SIZE], Quaterniond(Rs[WINDOW_SIZE]), true);
+//    }
 
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)

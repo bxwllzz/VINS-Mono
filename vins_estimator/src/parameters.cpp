@@ -39,6 +39,7 @@ double BASE_RADIUS;
 double BASE_Z_N;
 double BASE_RP_N;
 int USE_ODOM;
+int INIT_USE_ODOM;
 
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
@@ -187,6 +188,7 @@ void readParameters(ros::NodeHandle &n)
     fsSettings["base_z_n"] >> BASE_Z_N;
     fsSettings["base_rp_n"] >> BASE_RP_N;
     fsSettings["use_odom"] >> USE_ODOM;
+    fsSettings["init_use_odom"] >> INIT_USE_ODOM;
 
     fsSettings.release();
 }

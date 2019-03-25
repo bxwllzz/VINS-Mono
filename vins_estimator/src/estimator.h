@@ -36,6 +36,7 @@ public:
     // internal
     void clearState();
     bool initialStructure();
+    bool wheelOdomInitialAlign();
     bool visualInitialAlign();
     bool baseOdomAlign();
     bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);

@@ -40,6 +40,43 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     }
 }
 
+void solveGyroBiasByWheelOdom(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs) {
+    Matrix3d A;
+    Vector3d b;
+    Vector3d delta_bg;
+    A.setZero();
+    b.setZero();
+    map<double, ImageFrame>::iterator frame_i;
+    map<double, ImageFrame>::iterator frame_j;
+    for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++)
+    {
+        frame_j = next(frame_i);
+        MatrixXd tmp_A(3, 3);
+        tmp_A.setZero();
+        VectorXd tmp_b(3);
+        tmp_b.setZero();
+        tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);
+        Eigen::Quaterniond q_Oi_Oj(frame_j->second.base_integration->delta_q);
+        Eigen::Quaterniond q_B_O(RIO);
+        Eigen::Quaterniond q_Bi_Bj(frame_j->second.pre_integration->delta_q);
+        tmp_b = 2 * (q_Bi_Bj.inverse() * q_B_O * q_Oi_Oj * q_B_O.inverse()).vec();
+        A += tmp_A.transpose() * tmp_A;
+        b += tmp_A.transpose() * tmp_b;
+
+    }
+    delta_bg = A.ldlt().solve(b);
+    ROS_WARN_STREAM("bg initial calib (by wheel odom): " << delta_bg.transpose());
+
+    for (int i = 0; i <= WINDOW_SIZE; i++)
+        Bgs[i] += delta_bg;
+
+    for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end( ); frame_i++)
+    {
+        frame_j = next(frame_i);
+        frame_j->second.pre_integration->repropagate(Vector3d::Zero(), Bgs[0]);
+    }
+}
+
 std::vector<double> GetStillFrames(const map<double, ImageFrame> &all_image_frame, int protect_frames) {
     std::vector<pair<bool, double>> durations;
     durations.emplace_back(std::make_pair(false, 0));
@@ -82,28 +119,6 @@ std::vector<double> GetStillFrames(const map<double, ImageFrame> &all_image_fram
     }
 
     return still_frames;
-}
-
-Vector3d solveStillGyroBias(map<double, ImageFrame> &all_image_frame) {
-
-    std::ofstream ofs("/tmp/solveStillGyroBias.csv");
-
-    Vector3d sum_gyro = Vector3d::Zero();
-    double sum_dt = 0;
-    for (double k : GetStillFrames(all_image_frame, 1)) {
-        for (int i = 0; i < all_image_frame[k].pre_integration->dt_buf.size(); i++) {
-            sum_dt += all_image_frame[k].pre_integration->dt_buf[i];
-            sum_gyro += all_image_frame[k].pre_integration->gyr_buf[i] * all_image_frame[k].pre_integration->dt_buf[i];
-            ofs << all_image_frame[k].pre_integration->dt_buf[i] << ','
-                << all_image_frame[k].pre_integration->gyr_buf[i].x() << ','
-                << all_image_frame[k].pre_integration->gyr_buf[i].y() << ','
-                << all_image_frame[k].pre_integration->gyr_buf[i].z() << std::endl;
-        }
-    }
-    ofs.close();
-
-    Vector3d bias_gyro = sum_gyro / sum_dt;
-    return bias_gyro;
 }
 
 MatrixXd TangentBasis(Vector3d &g0)
@@ -471,12 +486,14 @@ void base_imu_alignment_fixed_scale(const vector<pair<std::shared_ptr<Integratio
 }
 
 // base wheel odometry align with IMU
-bool BaseIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x, VectorXd &refined_x) {
+bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x, VectorXd &refined_x) {
 
     TicToc tic;
 
     vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> frames;
     for (const auto& kv : all_image_frame) {
+        if (!kv.second.pre_integration || !kv.second.base_integration)
+            continue;
         const auto& bg = kv.second.pre_integration->linearized_bg;
         kv.second.base_integration->repropagate(Eigen::Matrix3d::Identity(), bg);
         frames.emplace_back(make_pair(kv.second.pre_integration, kv.second.base_integration));
@@ -506,15 +523,12 @@ bool BaseIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vec
 
         // R_b0_bk
         std::vector<Eigen::Matrix3d> rotations;
+        rotations.push_back(Eigen::Matrix3d::Identity());
         double wheel_distance = 0;
-        for (auto it = all_image_frame.begin(); it != all_image_frame.end(); it++) {
+        for (auto it = ++all_image_frame.begin(); it != all_image_frame.end(); it++) {
             const auto& bg = it->second.pre_integration->linearized_bg;
             it->second.base_integration->repropagate(Eigen::Matrix3d::Identity(), bg);
-            if (rotations.empty()) {
-                rotations.push_back(Eigen::Matrix3d::Identity());
-            } else {
-                rotations.emplace_back(it->second.pre_integration->delta_q.toRotationMatrix() * rotations.back());
-            }
+            rotations.emplace_back(it->second.pre_integration->delta_q.toRotationMatrix() * rotations.back());
             wheel_distance += it->second.base_integration->delta_p.norm();
         }
         ROS_INFO("wheel_distance: %f", wheel_distance);
@@ -601,17 +615,29 @@ bool BaseIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vec
     return true;
 }
 
+bool WheelOdomIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)
+{
+    solveGyroBiasByWheelOdom(all_image_frame, Bgs);
+
+    VectorXd refined_x;
+
+    if(BaseIMULinearAlignment(all_image_frame, g, x, refined_x)) {
+        return true;
+    } else
+        return false;
+}
+
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)
 {
     solveGyroscopeBias(all_image_frame, Bgs);
 
-    auto still_bg = solveStillGyroBias(all_image_frame);
-    ROS_INFO_STREAM("Bg VIO:" << Bgs[WINDOW_SIZE].transpose() << " Still:" << still_bg.transpose());
+//    auto still_bg = solveStillGyroBias(all_image_frame);
+//    ROS_INFO_STREAM("Bg VIO:" << Bgs[WINDOW_SIZE].transpose() << " Still:" << still_bg.transpose());
 
-    VectorXd refined_x;
-    BaseIMUAlignment(all_image_frame, g, x, refined_x);
-
-    auto x_backup = x;
+//    VectorXd refined_x;
+//    BaseIMUAlignment(all_image_frame, g, x, refined_x);
+//
+//    auto x_backup = x;
 
     if(LinearAlignment(all_image_frame, g, x)) {
 //        for (int i = 0; i < all_image_frame.size(); i++) {

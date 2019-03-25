@@ -596,7 +596,7 @@ public:
                 }
 
                 auto img_msg = measurement.img_msg;
-                ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
+                ROS_INFO("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
                 TicToc t_s;
                 map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
@@ -644,6 +644,7 @@ public:
                         predict->predict(imu_msg);
                     }
                 }
+                ROS_INFO("processed vision data with stamp %f \n", img_msg->header.stamp.toSec());
             }
         } while (nh.ok());
     }
