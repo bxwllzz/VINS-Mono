@@ -570,7 +570,6 @@ public:
                 }
                 for (const auto& m : measurement.odom_aligned_msgs) {
                     estimator.processOdometry(m.first.dt, m.first.velocity, m.first.constraint_error_vel, m.second.first, m.second.second);
-                    pubVelocityYaw(estimator, m.first.header);
 //                    pubMixedOdom(m.first.header, estimator.wheel_imu_odom.measurements.back(), estimator.wheel_odom_niose_analyser.filted_.back());
                 }
 #endif
@@ -596,7 +595,7 @@ public:
                 }
 
                 auto img_msg = measurement.img_msg;
-                ROS_INFO("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
+                ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
                 TicToc t_s;
                 map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
@@ -624,6 +623,7 @@ public:
                 std_msgs::Header header = img_msg->header;
                 header.frame_id = "world";
 
+                pubWheelOdomPathTF(estimator, header);
                 pubOdometry(estimator, header);
                 pubKeyPoses(estimator, header);
                 pubCameraPose(estimator, header);
@@ -644,7 +644,7 @@ public:
                         predict->predict(imu_msg);
                     }
                 }
-                ROS_INFO("processed vision data with stamp %f \n", img_msg->header.stamp.toSec());
+                ROS_DEBUG("processed vision data with stamp %f \n", img_msg->header.stamp.toSec());
             }
         } while (nh.ok());
     }

@@ -40,10 +40,9 @@ extern Eigen::Matrix3d RIO;
 extern Eigen::Vector3d TIO;
 extern int ESTIMATE_TD_ODOM;
 extern double TD_ODOM;
+extern Eigen::Matrix3d WHEEL_SCALE;
+extern double WHEEL_MIN_N;
 extern double WHEEL_N;
-extern double BASE_RADIUS;
-extern double BASE_Z_N;
-extern double BASE_RP_N;
 extern int USE_ODOM;
 extern int INIT_USE_ODOM;
 

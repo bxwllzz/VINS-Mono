@@ -34,10 +34,9 @@ Eigen::Matrix3d RIO;
 Eigen::Vector3d TIO;
 int ESTIMATE_TD_ODOM;
 double TD_ODOM;
+Eigen::Matrix3d WHEEL_SCALE;
+double WHEEL_MIN_N;
 double WHEEL_N;
-double BASE_RADIUS;
-double BASE_Z_N;
-double BASE_RP_N;
 int USE_ODOM;
 int INIT_USE_ODOM;
 
@@ -178,16 +177,32 @@ void readParameters(ros::NodeHandle &n)
 
     TD_ODOM = fsSettings["odom_td"];
     ESTIMATE_TD_ODOM = fsSettings["estimate_odom_td"];
-    if (ESTIMATE_TD)
+    if (ESTIMATE_TD_ODOM)
         ROS_INFO_STREAM("Unsynchronized odom sensors, online estimate time offset, initial td: " << TD_ODOM);
     else
         ROS_INFO_STREAM("Synchronized odom sensors, fix time offset: " << TD_ODOM);
 
+    cv::Mat cv_WHEEL_SCALE;
+    fsSettings["wheel_odom_scale"] >> cv_WHEEL_SCALE;
+    cv::cv2eigen(cv_WHEEL_SCALE, WHEEL_SCALE);
+    fsSettings["wheel_min_n"] >> WHEEL_MIN_N;
     fsSettings["wheel_n"] >> WHEEL_N;
-    fsSettings["base_radius"] >> BASE_RADIUS;
-    fsSettings["base_z_n"] >> BASE_Z_N;
-    fsSettings["base_rp_n"] >> BASE_RP_N;
     fsSettings["use_odom"] >> USE_ODOM;
+    switch (USE_ODOM) {
+    case 1:
+        ROS_INFO_STREAM("Use only inter-frame odometry factor");
+        break;
+    case 2:
+        ROS_INFO_STREAM("Use only begin-end-frame odometry factor");
+        break;
+    case 3:
+        ROS_INFO_STREAM("Use both inter-frame odom factor and begin-end-frame odom factor");
+        break;
+    default:
+        ROS_INFO_STREAM("Not use wheel odometry fator");
+        USE_ODOM = 0;
+        break;
+    }
     fsSettings["init_use_odom"] >> INIT_USE_ODOM;
 
     fsSettings.release();

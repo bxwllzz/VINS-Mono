@@ -79,8 +79,11 @@ int main(int argc, char **argv) {
 
     alignment.vio_main_rot_axis();
     alignment.solve_pitch_roll();
-    alignment.solve_yaw_xy();
+    alignment.solve_yaw_xy_scale();
 
+    Matrix2d scale; scale << alignment.scale_.x(), 0, 0, alignment.scale_.y();
+    cout << "Calibrated wheelodom scale (V_true=scale*V_measure):" << endl;
+    cout << scale << endl;
     Affine3d T_wheelodom_visualodom = alignment.T_o_b();
     cout << "Calibrated T^wheelodom_visualodom:" << endl;
     cout << "    translation: " << T_wheelodom_visualodom.translation().transpose() << endl;

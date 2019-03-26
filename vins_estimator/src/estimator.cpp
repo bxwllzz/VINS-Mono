@@ -101,7 +101,7 @@ void Estimator::clearState()
     drift_correct_r = Matrix3d::Identity();
     drift_correct_t = Vector3d::Zero();
 
-    wheel_odom_niose_analyser.reset();
+//    wheel_odom_niose_analyser.reset();
 }
 
 void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
@@ -158,15 +158,15 @@ void Estimator::processOdometry(
     // todo: process odometry
 
     if (!base_integrations[frame_count]) {
-        base_integrations[frame_count] = std::make_shared<BaseOdometryIntegration3D>(Matrix3d::Identity(), Bgs[frame_count]);
+        base_integrations[frame_count] = std::make_shared<BaseOdometryIntegration3D>(Bgs[frame_count]);
     }
 
     if (!tmp_base_integration) {
-        tmp_base_integration = std::make_shared<BaseOdometryIntegration3D>(Matrix3d::Identity(), Bgs[frame_count]);
+        tmp_base_integration = std::make_shared<BaseOdometryIntegration3D>(Bgs[frame_count]);
     }
 
     if (!wi_base_integrations.back()) {
-        wi_base_integrations.back() = make_shared<BaseOdometryIntegration3D>(Matrix3d::Identity(), Bgs[frame_count]);
+        wi_base_integrations.back() = make_shared<BaseOdometryIntegration3D>(Bgs[frame_count]);
     }
 
     wi_base_integrations.back()->push_back(
@@ -314,7 +314,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     all_image_frame[header.stamp.toSec()].pre_integration = std::move(tmp_pre_integration);
     all_image_frame[header.stamp.toSec()].base_integration = std::move(tmp_base_integration);
     tmp_pre_integration.reset(new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]});
-    tmp_base_integration.reset(new BaseOdometryIntegration3D(Eigen::Matrix3d::Identity(), Bgs[frame_count]));
+    tmp_base_integration.reset(new BaseOdometryIntegration3D(Bgs[frame_count]));
 
     if(ESTIMATE_EXTRINSIC == 2)
     {
@@ -338,7 +338,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     if (solver_flag == INITIAL)
     {
         // initialize VIO
-        if (frame_count == WINDOW_SIZE) {
+        if (frame_count < WINDOW_SIZE) {
+            ROS_INFO("Waiting for enough image frames to initialization (%d/%d)", frame_count, WINDOW_SIZE);
+        } else {
             bool result = false;
             if( ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1) {
                 // try initialize
@@ -350,10 +352,10 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             } else {
                 // initialize ok, do non-linear optimization on this frame
                 just_initial = true;
-                baseOdomAlign();
+//                baseOdomAlign();
 
                 init_orientation = Rs[0];
-                base_integration_before_init.repropagate(Eigen::Matrix3d::Identity(), Bgs[0]);
+                base_integration_before_init.repropagate(Bgs[0]);
 
                 solver_flag = NON_LINEAR;
                 ROS_INFO("Initialization finish! skipped %.3f sec", base_integration_before_init.sum_dt);
@@ -471,6 +473,7 @@ bool Estimator::initialStructure()
     TicToc t_sfm;
 
     if (INIT_USE_ODOM == 1) {
+        ROS_INFO("Initialize estimator using wheelodom+imu");
         if (wheelOdomInitialAlign())
             return true;
         else
@@ -479,6 +482,7 @@ bool Estimator::initialStructure()
             return false;
         }
     }
+    ROS_INFO("Initialize estimator using camera+imu");
 
     //check imu observibility
     {
@@ -514,36 +518,36 @@ bool Estimator::initialStructure()
         }
     }
 
-    // check wheel odometry observibility
-    bool enough_move_ditance = true;
-    {
-        bool first = true;
-        double sum_distance = 0;
-        for (const auto& it : all_image_frame) {
-            if (first) {
-                first = false;
-                continue;
-            }
-            sum_distance += it.second.base_integration->delta_p.norm();
-        }
-        if (sum_distance < 0.5) {
-            ROS_INFO("move distance not enough (%f < 0.5)", sum_distance);
-            enough_move_ditance = false;
-        }
-    }
-
-    // check wheel odometry still frames
-    bool enough_still_duration = true;
-    {
-        double sum_still_dt = 0;
-        for (double k : GetStillFrames(all_image_frame, 1)) {
-            sum_still_dt += all_image_frame[k].base_integration->sum_dt;
-        }
-        if (sum_still_dt < 1) {
-            ROS_INFO("still duration not enough (%f < 1)", sum_still_dt);
-            enough_still_duration = false;
-        }
-    }
+//    // check wheel odometry observibility
+//    bool enough_move_ditance = true;
+//    {
+//        bool first = true;
+//        double sum_distance = 0;
+//        for (const auto& it : all_image_frame) {
+//            if (first) {
+//                first = false;
+//                continue;
+//            }
+//            sum_distance += it.second.base_integration->delta_p.norm();
+//        }
+//        if (sum_distance < 0.5) {
+//            ROS_INFO("move distance not enough (%f < 0.5)", sum_distance);
+//            enough_move_ditance = false;
+//        }
+//    }
+//
+//    // check wheel odometry still frames
+//    bool enough_still_duration = true;
+//    {
+//        double sum_still_dt = 0;
+//        for (double k : GetStillFrames(all_image_frame, 1)) {
+//            sum_still_dt += all_image_frame[k].base_integration->sum_dt;
+//        }
+//        if (sum_still_dt < 1) {
+//            ROS_INFO("still duration not enough (%f < 1)", sum_still_dt);
+//            enough_still_duration = false;
+//        }
+//    }
 
 //    if (!enough_move_ditance) {
 //        return false;
@@ -725,14 +729,15 @@ bool Estimator::wheelOdomInitialAlign() {
         ROS_WARN("solve g failed!");
         return false;
     }
-    ROS_INFO_STREAM("g0: " << g.transpose());
+    ROS_INFO_STREAM("g0:         " << g.transpose());
 
     // init IMU pose
     Ps[0] = {0, 0, 0};
     Vector3d ypr_w_B0 = Utility::R2ypr(Utility::g2R(g));
     ypr_w_B0[0] = 0;
     Rs[0] = Utility::ypr2R(ypr_w_B0);
-    ROS_INFO_STREAM("R^W_B0: " << Utility::R2ypr(Rs[0]).transpose());
+    ROS_INFO_STREAM("YPR^W_O0:   " << Utility::R2ypr(Rs[0] * rio).transpose());
+    ROS_INFO_STREAM("Initial bg: " << Bgs[WINDOW_SIZE].transpose() * 180 / M_PI);
 
     g = Rs[0] * g;
     Affine3d T_B_O = Translation3d(tio) * rio;
@@ -742,7 +747,7 @@ bool Estimator::wheelOdomInitialAlign() {
         if (pre_integrations[i])
             pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
         if (base_integrations[i])
-            base_integrations[i]->repropagate(Matrix3d::Identity(), Bgs[i]);
+            base_integrations[i]->repropagate(Bgs[i]);
         // p & R comes from wheel odom and IMU
         if (i >= 1) {
             Affine3d T_w_Bi = Translation3d(Ps[i-1]) * Rs[i-1];
@@ -811,6 +816,8 @@ bool Estimator::visualInitialAlign()
     // repropagate with refined bias gyr
     double s = (x.tail<1>())(0);
     for (int i = 0; i <= WINDOW_SIZE; i++) {
+        if (!pre_integrations[i])
+            continue;
         pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
     }
 
@@ -1132,7 +1139,7 @@ void Estimator::optimization()
         problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
     }
 
-    auto long_base_integration = std::make_shared<BaseOdometryIntegration3D>(Eigen::Matrix3d::Identity(), Bgs[0]);
+    auto long_base_integration = std::make_shared<BaseOdometryIntegration3D>(Bgs[0]);
     if (USE_ODOM) {
         for (int i = 0; i < WINDOW_SIZE; i++) {
             int j = i + 1;
@@ -1151,33 +1158,34 @@ void Estimator::optimization()
         }
     }
 
-    int f_m_cnt = 0;
-    int feature_index = -1;
-    for (auto &it_per_id : f_manager.feature)
-    {
-        it_per_id.used_num = it_per_id.feature_per_frame.size();
-        if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
-            continue;
-
-        ++feature_index;
-
-        int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
-
-        Vector3d pts_i = it_per_id.feature_per_frame[0].point;
-
-        for (auto &it_per_frame : it_per_id.feature_per_frame)
+    if (true || f_manager.last_track_num >= 100) {
+        int f_m_cnt = 0;
+        int feature_index = -1;
+        for (auto &it_per_id : f_manager.feature)
         {
-            imu_j++;
-            if (imu_i == imu_j)
-            {
+            it_per_id.used_num = it_per_id.feature_per_frame.size();
+            if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
                 continue;
-            }
-            Vector3d pts_j = it_per_frame.point;
-            if (ESTIMATE_TD)
+
+            ++feature_index;
+
+            int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
+
+            Vector3d pts_i = it_per_id.feature_per_frame[0].point;
+
+            for (auto &it_per_frame : it_per_id.feature_per_frame)
             {
+                imu_j++;
+                if (imu_i == imu_j)
+                {
+                    continue;
+                }
+                Vector3d pts_j = it_per_frame.point;
+                if (ESTIMATE_TD)
+                {
                     ProjectionTdFactor *f_td = new ProjectionTdFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
-                                                                     it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td,
-                                                                     it_per_id.feature_per_frame[0].uv.y(), it_per_frame.uv.y());
+                                                                      it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td,
+                                                                      it_per_id.feature_per_frame[0].uv.y(), it_per_frame.uv.y());
                     problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
                     /*
                     double **para = new double *[5];
@@ -1188,17 +1196,21 @@ void Estimator::optimization()
                     para[4] = para_Td[0];
                     f_td->check(para);
                     */
+                }
+                else
+                {
+                    ProjectionFactor *f = new ProjectionFactor(pts_i, pts_j);
+                    problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index]);
+                }
+                f_m_cnt++;
             }
-            else
-            {
-                ProjectionFactor *f = new ProjectionFactor(pts_i, pts_j);
-                problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index]);
-            }
-            f_m_cnt++;
         }
+        ROS_DEBUG("visual measurement count: %d ", f_m_cnt);
+//        ROS_INFO("visual (%d points)", f_manager.last_track_num);
+    } else {
+        ROS_WARN("visual lost (%d points), visual data ignored ", f_manager.last_track_num);
     }
 
-    ROS_DEBUG("visual measurement count: %d", f_m_cnt);
     ROS_DEBUG("prepare for ceres: %f", t_prepare.toc());
 
     if(relocalization_info)
@@ -1484,7 +1496,7 @@ void Estimator::slideWindow()
             Bgs[WINDOW_SIZE] = Bgs[WINDOW_SIZE - 1];
 
             pre_integrations[WINDOW_SIZE] = std::make_shared<IntegrationBase>(acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]);
-            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration3D>(Matrix3d::Identity(), Bgs[WINDOW_SIZE]);
+            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration3D>(Bgs[WINDOW_SIZE]);
 
             // remove image frames older than first keyframe
 //            if (solver_flag == NON_LINEAR) {
@@ -1537,7 +1549,7 @@ void Estimator::slideWindow()
             Bgs[frame_count - 1] = Bgs[frame_count];
 
             pre_integrations[WINDOW_SIZE] = std::make_shared<IntegrationBase>(acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]);
-            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration3D>(Matrix3d::Identity(), Bgs[WINDOW_SIZE]);
+            base_integrations[WINDOW_SIZE] = std::make_shared<BaseOdometryIntegration3D>(Bgs[WINDOW_SIZE]);
 
             slideWindowNew();
         }

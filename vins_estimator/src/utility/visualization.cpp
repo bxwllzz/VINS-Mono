@@ -81,7 +81,7 @@ void registerPub(ros::NodeHandle &n)
     keyframebasevisual.setLineWidth(0.01);
 }
 
-void pubVelocityYaw(const Estimator &estimator, const std_msgs::Header& header) {
+void pubWheelOdomPathTF(const Estimator &estimator, const std_msgs::Header &header) {
 
     geometry_msgs::PoseStamped pose_stamped;
 
@@ -282,11 +282,12 @@ void printStatistics(const Estimator &estimator, double t)
 {
     if (estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;
-    printf("pos:%6.3f %6.3f %6.3f vel:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
+    printf("p:%6.3f %6.3f %6.3f v:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
            estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z(),
            estimator.Vs[WINDOW_SIZE].x(), estimator.Vs[WINDOW_SIZE].y(), estimator.Vs[WINDOW_SIZE].z(),
            estimator.Bas[WINDOW_SIZE].x(), estimator.Bas[WINDOW_SIZE].y(), estimator.Bas[WINDOW_SIZE].z(),
-           estimator.Bgs[WINDOW_SIZE].x(), estimator.Bgs[WINDOW_SIZE].y(), estimator.Bgs[WINDOW_SIZE].z());
+           estimator.Bgs[WINDOW_SIZE].x() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].y() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].z() / M_PI * 180);
+    std::cout << std::flush;
     ROS_DEBUG_STREAM("position: " << estimator.Ps[WINDOW_SIZE].transpose());
     ROS_DEBUG_STREAM("orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
     for (int i = 0; i < NUM_OF_CAM; i++)
@@ -518,7 +519,7 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header) {
         }
         // calc scale_wheel
         {
-            Eigen::Affine3d T_wheel = Eigen::Translation3d(Eigen::Vector3d::Zero()) * Eigen::Matrix3d::Zero();
+            Eigen::Affine3d T_wheel = Eigen::Translation3d(Eigen::Vector3d::Zero()) * Eigen::Matrix3d::Identity();
             for (int i = 1; i < WINDOW_SIZE; i++) {
                 T_wheel = T_wheel * (Eigen::Translation3d(estimator.base_integrations[i]->delta_p) * estimator.base_integrations[i]->delta_q);
             }

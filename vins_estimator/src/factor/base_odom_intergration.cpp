@@ -10,35 +10,35 @@
 using namespace std;
 using namespace Eigen;
 
-void BaseOdometryIntegration::push_back(const MixedOdomMeasurement& m) {
-    measurements.emplace_back(m);
-    propagate(measurements.back());
-    //        ROS_INFO("%lX d_pos=(%f,%f) d_yaw=%f", (uint64_t)this, delta_p.x(), delta_p.y(), delta_yaw / M_PI * 180);
-}
+//void BaseOdometryIntegration::push_back(const MixedOdomMeasurement& m) {
+//    measurements.emplace_back(m);
+//    propagate(measurements.back());
+//    //        ROS_INFO("%lX d_pos=(%f,%f) d_yaw=%f", (uint64_t)this, delta_p.x(), delta_p.y(), delta_yaw / M_PI * 180);
+//}
+//
+//void BaseOdometryIntegration::propagate(const MixedOdomMeasurement& m) {
+//    auto            d_pose = integration(m.dt, m.velocity);
+//    Eigen::Affine2d T_0    = Eigen::Translation2d(delta_p) * Eigen::Rotation2Dd(delta_yaw_imu);
+//    Eigen::Affine2d T_01   = Eigen::Translation2d(d_pose.first) * Eigen::Rotation2Dd(d_pose.second);
+//    Eigen::Affine2d T_1    = T_0 * T_01;
+//
+//    sum_dt += m.dt;
+//    delta_p       = T_1.translation();
+//    delta_yaw_imu = Eigen::Rotation2Dd(T_1.rotation()).angle();
+//}
+//
+//void BaseOdometryIntegration::repropagate() {
+//    sum_dt        = 0;
+//    delta_p       = { 0, 0 };
+//    delta_yaw_imu = 0;
+//    for (auto& m : measurements) {
+//        propagate(m);
+//    }
+//}
 
-void BaseOdometryIntegration::propagate(const MixedOdomMeasurement& m) {
-    auto            d_pose = integration(m.dt, m.velocity);
-    Eigen::Affine2d T_0    = Eigen::Translation2d(delta_p) * Eigen::Rotation2Dd(delta_yaw_imu);
-    Eigen::Affine2d T_01   = Eigen::Translation2d(d_pose.first) * Eigen::Rotation2Dd(d_pose.second);
-    Eigen::Affine2d T_1    = T_0 * T_01;
-
-    sum_dt += m.dt;
-    delta_p       = T_1.translation();
-    delta_yaw_imu = Eigen::Rotation2Dd(T_1.rotation()).angle();
-}
-
-void BaseOdometryIntegration::repropagate() {
-    sum_dt        = 0;
-    delta_p       = { 0, 0 };
-    delta_yaw_imu = 0;
-    for (auto& m : measurements) {
-        propagate(m);
-    }
-}
-
-BaseOdometryIntegration3D::BaseOdometryIntegration3D(const Eigen::Matrix3d& _scale, const Eigen::Vector3d& _bg)
-    : scale(_scale), linearized_bg(_bg) {
-    covariance.block<3, 3>(0, 0) += 0.003 * 0.003 *  Eigen::Matrix3d::Identity();
+BaseOdometryIntegration3D::BaseOdometryIntegration3D(const Eigen::Vector3d& _bg)
+    : scale(WHEEL_SCALE), linearized_bg(_bg) {
+//    covariance.block<3, 3>(0, 0) += 0.003 * 0.003 *  Eigen::Matrix3d::Identity();
     //        ROS_WARN("new BaseOdometryIntegration %lX", (uint64_t)this);
 }
 
@@ -56,9 +56,10 @@ void BaseOdometryIntegration3D::propagate(const MixedOdomMeasurement& m) {
     Quaterniond q_i_j;
     q_i_j.w() = 1;
     q_i_j.vec() = RIO.transpose() * (m.imu_angular_velocity - linearized_bg) * m.dt / 2;
-    Vector3d    t_i_j(m.velocity.first.x() * m.dt,
-                   m.velocity.first.y() * m.dt,
-                   0);
+    Vector3d calib_vel = scale.inverse() * Eigen::Vector3d(m.velocity.first.x(), m.velocity.first.y(), m.velocity.second);
+    Vector3d    t_i_j(calib_vel.x() * m.dt,
+                      calib_vel.y() * m.dt,
+                      0);
 
     F.setIdentity();
     F.block<3, 3>(3, 3) += -Utility::skewSymmetric(RIO.transpose() * (m.imu_angular_velocity - linearized_bg)) * m.dt;
@@ -74,9 +75,13 @@ void BaseOdometryIntegration3D::propagate(const MixedOdomMeasurement& m) {
     delta_q = delta_q * q_i_j;
 
     double constraint_err_noise = m.constraint_error_vel * m.dt;
-    double scale_noise = t_i_j.norm() * 0.001;
+    double scale_noise = t_i_j.norm() * WHEEL_N;
     double odometry_noise = std::max(constraint_err_noise, scale_noise);
     noise.setZero();
+    Matrix3d odometry_noise_matrix;
+    odometry_noise_matrix << odometry_noise * odometry_noise, 0, 0,
+                             0, odometry_noise * odometry_noise, 0,
+                             0, 0, 0;
     noise.block<3, 3>(0, 0) = (odometry_noise * odometry_noise) * Eigen::Matrix3d::Identity();
     noise.block<3, 3>(3, 3) = (GYR_N * m.dt * GYR_N * m.dt) * Eigen::Matrix3d::Identity();
     noise.block<3, 3>(6, 6) = (GYR_W * m.dt * GYR_W * m.dt) * Eigen::Matrix3d::Identity();
@@ -85,11 +90,15 @@ void BaseOdometryIntegration3D::propagate(const MixedOdomMeasurement& m) {
     covariance_intergral = F * covariance_intergral * F.transpose() + G * noise * G.transpose();
 
     covariance = covariance_intergral;
-    covariance.block<3, 3>(0, 0) += 0.003 * 0.003 *  Eigen::Matrix3d::Identity();
+    Matrix3d addition_niose;
+    addition_niose << WHEEL_MIN_N * WHEEL_MIN_N, 0, 0,
+                      0, WHEEL_MIN_N * WHEEL_MIN_N, 0,
+                      0, 0, WHEEL_MIN_N * WHEEL_MIN_N;
+    covariance.block<3, 3>(0, 0) += addition_niose;
 }
 
-void BaseOdometryIntegration3D::repropagate(const Eigen::Matrix3d& _scale, const Eigen::Vector3d& _bg) {
-    scale   = _scale;
+void BaseOdometryIntegration3D::repropagate(const Eigen::Vector3d& _bg) {
+    scale   = WHEEL_SCALE;
     linearized_bg = _bg;
     sum_dt  = 0;
     delta_p = { 0, 0, 0 };

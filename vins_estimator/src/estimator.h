@@ -150,7 +150,7 @@ public:
     BaseOdometryIntegration3D wheel_only_odom;
     BaseOdometryIntegration3D wheel_imu_odom;
     BaseOdometryIntegration3D wheel_imu_odom3D;
-    WheelOdometryNoiseAnalyser wheel_odom_niose_analyser = { 10 };
+//    WheelOdometryNoiseAnalyser wheel_odom_niose_analyser = { 10 };
 
     // wheel imu fusion window
     std::deque<std::shared_ptr<IntegrationBase>> wi_imu_integrations = {std::shared_ptr<IntegrationBase>()};
