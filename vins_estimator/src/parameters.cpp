@@ -40,6 +40,8 @@ double WHEEL_N;
 int USE_ODOM;
 int INIT_USE_ODOM;
 
+int USE_PLANE_FACTOR;
+
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
 {
@@ -204,6 +206,8 @@ void readParameters(ros::NodeHandle &n)
         break;
     }
     fsSettings["init_use_odom"] >> INIT_USE_ODOM;
+
+    fsSettings["use_plane_factor"] >> USE_PLANE_FACTOR;
 
     fsSettings.release();
 }

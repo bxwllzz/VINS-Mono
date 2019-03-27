@@ -282,11 +282,11 @@ void printStatistics(const Estimator &estimator, double t)
 {
     if (estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;
-    printf("p:%6.3f %6.3f %6.3f v:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
-           estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z(),
-           estimator.Vs[WINDOW_SIZE].x(), estimator.Vs[WINDOW_SIZE].y(), estimator.Vs[WINDOW_SIZE].z(),
-           estimator.Bas[WINDOW_SIZE].x(), estimator.Bas[WINDOW_SIZE].y(), estimator.Bas[WINDOW_SIZE].z(),
-           estimator.Bgs[WINDOW_SIZE].x() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].y() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].z() / M_PI * 180);
+//    printf("p:%6.3f %6.3f %6.3f v:%6.3f %6.3f %6.3f Ba:%6.3f %6.3f %6.3f Bg:%6.3f %6.3f %6.3f\r",
+//           estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z(),
+//           estimator.Vs[WINDOW_SIZE].x(), estimator.Vs[WINDOW_SIZE].y(), estimator.Vs[WINDOW_SIZE].z(),
+//           estimator.Bas[WINDOW_SIZE].x(), estimator.Bas[WINDOW_SIZE].y(), estimator.Bas[WINDOW_SIZE].z(),
+//           estimator.Bgs[WINDOW_SIZE].x() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].y() / M_PI * 180, estimator.Bgs[WINDOW_SIZE].z() / M_PI * 180);
     std::cout << std::flush;
     ROS_DEBUG_STREAM("position: " << estimator.Ps[WINDOW_SIZE].transpose());
     ROS_DEBUG_STREAM("orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
@@ -427,29 +427,29 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         msg.linear_acceleration.z = estimator.Bas[WINDOW_SIZE].z();
         pub_bias.publish(msg);
         // debug pub lastest keyframe translation
-        nav_msgs::Odometry msg_imu_predict;
-        msg_imu_predict.header = header;
-        msg_imu_predict.pose.pose.position.x = estimator.imu_predict_P.x();
-        msg_imu_predict.pose.pose.position.y = estimator.imu_predict_P.y();
-        msg_imu_predict.pose.pose.position.z = estimator.imu_predict_P.z();
-        pub_imu_predict.publish(msg_imu_predict);
-        nav_msgs::Odometry msg_optimized;
-        msg_optimized.header = header;
-        msg_optimized.pose.pose.position.x = estimator.optimized_P.x();
-        msg_optimized.pose.pose.position.y = estimator.optimized_P.y();
-        msg_optimized.pose.pose.position.z = estimator.optimized_P.z();
-        pub_optimized.publish(msg_optimized);
-        nav_msgs::Odometry msg_wheel_predict;
-        msg_wheel_predict.header = header;
-        msg_wheel_predict.pose.pose.position.x = estimator.wheel_predict_P.x();
-        msg_wheel_predict.pose.pose.position.y = estimator.wheel_predict_P.y();
-        pub_wheel_predict.publish(msg_wheel_predict);
-        nav_msgs::Odometry msg_wheel_imu_predict;
-        msg_wheel_imu_predict.header = header;
-        msg_wheel_imu_predict.pose.pose.position.x = estimator.wheel_imu_predict_P.x();
-        msg_wheel_imu_predict.pose.pose.position.y = estimator.wheel_imu_predict_P.y();
-        msg_wheel_imu_predict.pose.pose.position.z = estimator.wheel_imu_predict_P.z();
-        pub_wheel_imu_predict.publish(msg_wheel_imu_predict);
+//        nav_msgs::Odometry msg_imu_predict;
+//        msg_imu_predict.header = header;
+//        msg_imu_predict.pose.pose.position.x = estimator.imu_predict_P.x();
+//        msg_imu_predict.pose.pose.position.y = estimator.imu_predict_P.y();
+//        msg_imu_predict.pose.pose.position.z = estimator.imu_predict_P.z();
+//        pub_imu_predict.publish(msg_imu_predict);
+//        nav_msgs::Odometry msg_optimized;
+//        msg_optimized.header = header;
+//        msg_optimized.pose.pose.position.x = estimator.optimized_P.x();
+//        msg_optimized.pose.pose.position.y = estimator.optimized_P.y();
+//        msg_optimized.pose.pose.position.z = estimator.optimized_P.z();
+//        pub_optimized.publish(msg_optimized);
+//        nav_msgs::Odometry msg_wheel_predict;
+//        msg_wheel_predict.header = header;
+//        msg_wheel_predict.pose.pose.position.x = estimator.wheel_predict_P.x();
+//        msg_wheel_predict.pose.pose.position.y = estimator.wheel_predict_P.y();
+//        pub_wheel_predict.publish(msg_wheel_predict);
+//        nav_msgs::Odometry msg_wheel_imu_predict;
+//        msg_wheel_imu_predict.header = header;
+//        msg_wheel_imu_predict.pose.pose.position.x = estimator.wheel_imu_predict_P.x();
+//        msg_wheel_imu_predict.pose.pose.position.y = estimator.wheel_imu_predict_P.y();
+//        msg_wheel_imu_predict.pose.pose.position.z = estimator.wheel_imu_predict_P.z();
+//        pub_wheel_imu_predict.publish(msg_wheel_imu_predict);
 
 
         // write result to file

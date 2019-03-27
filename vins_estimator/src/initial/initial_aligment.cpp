@@ -290,12 +290,6 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
         return true;
 }
 
-// g [INPUT & OUTPUT]: gravity in IMU frame
-// x [OUTPUT]: result vector
-void BaseIMURefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x)
-{
-}
-
 void base_imu_alignment(const vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> &pre_integrations,
                         const Matrix3d& R_imu_base, const Vector3d& t_imu_base,
                         VectorXd &x, Vector3d &g, double &s, double &avg_err_p, double &avg_err_v) {
@@ -393,8 +387,8 @@ void base_imu_alignment(const vector<pair<std::shared_ptr<IntegrationBase>, std:
 }
 
 void base_imu_alignment_fixed_scale(const vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> &pre_integrations,
-                        const Matrix3d& R_imu_base, const Vector3d& t_imu_base,
-                        VectorXd &x, Vector3d &g, double &avg_err_p, double &avg_err_v) {
+                                    const Matrix3d& R_imu_base, const Vector3d& t_imu_base,
+                                    VectorXd &x, Vector3d &g, double &avg_err_p, double &avg_err_v) {
 
     int frame_count = pre_integrations.size();
     int n_state = frame_count * 3 + 3;
@@ -483,6 +477,91 @@ void base_imu_alignment_fixed_scale(const vector<pair<std::shared_ptr<Integratio
     avg_err_p /= (frame_count - 1);
     avg_err_v /= (frame_count - 1);
     g = x.segment<3>(n_state - 3);
+
+//    ROS_INFO("base_imu_alignment_fixed_scale dt:%f dp:%f err_p:%f err_v:%f g:%f", sum_dt, sum_distance, avg_err_p, avg_err_v, g.norm());
+//    ROS_INFO_STREAM("base_imu_alignment g " << g.norm() << " " << (R_imu_base.transpose() * g).transpose());
+}
+
+void base_imu_alignment_fixed_scale_g(const vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> &pre_integrations,
+                                    const Matrix3d& R_imu_base, const Vector3d& t_imu_base,
+                                    VectorXd &x, const Vector3d &g, vector<Vector3d>& err_p, vector<Vector3d>& err_v) {
+
+    int frame_count = pre_integrations.size();
+    int n_state = frame_count * 3;
+
+    MatrixXd AA{n_state, n_state};              AA.setZero();
+    VectorXd Ab{n_state};                       Ab.setZero();
+
+    Matrix3d R_b0_bi = Matrix3d::Identity();
+    for (int i = 0; i < frame_count - 2; i++) {
+        auto& frame_i = pre_integrations[i];
+        auto& frame_j = pre_integrations[i+1];
+        Matrix3d R_bi_bj = frame_j.first->delta_q.toRotationMatrix();
+
+        MatrixXd tmp_A(6, 6);  tmp_A.setZero();
+        VectorXd tmp_b(6);     tmp_b.setZero();
+
+        double dt = frame_j.first->sum_dt;
+
+        tmp_A.block<3, 3>(0, 0) = -dt * Matrix3d::Identity();
+        tmp_b.block<3, 1>(0, 0) = frame_j.first->delta_p + R_bi_bj * t_imu_base - t_imu_base
+                                  - R_imu_base * frame_j.second->delta_p
+                                  - (dt * dt / 2) * R_b0_bi.transpose() * g;
+        tmp_A.block<3, 3>(3, 0) = -Matrix3d::Identity();
+        tmp_A.block<3, 3>(3, 3) = R_bi_bj;
+        tmp_b.block<3, 1>(3, 0) = frame_j.first->delta_v - R_b0_bi.transpose() * dt * g;
+
+        MatrixXd r_A = tmp_A.transpose() * tmp_A;
+        VectorXd r_b = tmp_A.transpose() * tmp_b;
+
+        AA.block<6, 6>(i * 3, i * 3) += r_A;
+        Ab.segment<6>(i * 3) += r_b;
+
+        R_b0_bi = R_b0_bi * R_bi_bj;
+    }
+
+    AA = AA * 1000.0;
+    Ab = Ab * 1000.0;
+    x = AA.ldlt().solve(Ab);
+
+    // validate error
+    err_p.clear();
+    err_v.clear();
+    R_b0_bi = Matrix3d::Identity();
+    for (int i = 0; i < frame_count - 1; i++) {
+        auto& frame_i = pre_integrations[i];
+        auto& frame_j = pre_integrations[i+1];
+        Matrix3d R_bi_bj = frame_j.first->delta_q.toRotationMatrix();
+
+        MatrixXd tmp_A(6, 6);  tmp_A.setZero();
+        VectorXd tmp_b(6);     tmp_b.setZero();
+
+        double dt = frame_j.first->sum_dt;
+
+        tmp_A.block<3, 3>(0, 0) = -dt * Matrix3d::Identity();
+        tmp_b.block<3, 1>(0, 0) = frame_j.first->delta_p + R_bi_bj * t_imu_base - t_imu_base
+                                  - R_imu_base * frame_j.second->delta_p
+                                  - (dt * dt / 2) * R_b0_bi.transpose() * g;
+        tmp_A.block<3, 3>(3, 0) = -Matrix3d::Identity();
+        tmp_A.block<3, 3>(3, 3) = R_bi_bj;
+        tmp_b.block<3, 1>(3, 0) = frame_j.first->delta_v - R_b0_bi.transpose() * dt * g;
+
+        MatrixXd r_A = tmp_A.transpose() * tmp_A;
+        VectorXd r_b = tmp_A.transpose() * tmp_b;
+
+        AA.block<6, 6>(i * 3, i * 3) += r_A;
+        Ab.segment<6>(i * 3) += r_b;
+
+        VectorXd tmp_x(6);
+        tmp_x = x.segment<6>(i * 3);
+
+        VectorXd res(6);
+        res = tmp_b - tmp_A * tmp_x;
+        err_p.emplace_back(res.head<3>());
+        err_v.emplace_back(res.tail<3>());
+
+        R_b0_bi = R_b0_bi * R_bi_bj;
+    }
 
 //    ROS_INFO("base_imu_alignment_fixed_scale dt:%f dp:%f err_p:%f err_v:%f g:%f", sum_dt, sum_distance, avg_err_p, avg_err_v, g.norm());
 //    ROS_INFO_STREAM("base_imu_alignment g " << g.norm() << " " << (R_imu_base.transpose() * g).transpose());

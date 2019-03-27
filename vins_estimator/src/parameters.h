@@ -46,6 +46,8 @@ extern double WHEEL_N;
 extern int USE_ODOM;
 extern int INIT_USE_ODOM;
 
+extern int USE_PLANE_FACTOR;
+
 void readParameters(ros::NodeHandle &n);
 
 enum SIZE_PARAMETERIZATION

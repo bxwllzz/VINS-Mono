@@ -85,19 +85,19 @@ public:
     std::shared_ptr<BaseOdometryIntegration3D> base_integrations[WINDOW_SIZE + 1];
 
     // debug
-    Vector3d imu_predict_P = Vector3d::Zero();
-    Matrix3d imu_predict_R = Matrix3d::Identity();
-    Vector3d imu_predict_V = Vector3d::Zero();
-    Vector3d optimized_P = Vector3d::Zero();
-    Matrix3d optimized_R = Matrix3d::Identity();
-    Vector3d optimized_V = Vector3d::Zero();
-    Vector3d wheel_predict_P = Vector3d::Zero();
-    Matrix3d wheel_predict_R = Matrix3d::Zero();
-    double wheel_predict_dt = 0;
-    Vector3d wheel_imu_P = Vector3d::Zero();
-    Vector3d wheel_imu_V = Vector3d::Zero();
-    Vector3d wheel_imu_predict_P = Vector3d::Zero();
-    Vector3d wheel_imu_predict_V = Vector3d::Zero();
+//    Vector3d imu_predict_P = Vector3d::Zero();
+//    Matrix3d imu_predict_R = Matrix3d::Identity();
+//    Vector3d imu_predict_V = Vector3d::Zero();
+//    Vector3d optimized_P = Vector3d::Zero();
+//    Matrix3d optimized_R = Matrix3d::Identity();
+//    Vector3d optimized_V = Vector3d::Zero();
+//    Vector3d wheel_predict_P = Vector3d::Zero();
+//    Matrix3d wheel_predict_R = Matrix3d::Zero();
+//    double wheel_predict_dt = 0;
+//    Vector3d wheel_imu_P = Vector3d::Zero();
+//    Vector3d wheel_imu_V = Vector3d::Zero();
+//    Vector3d wheel_imu_predict_P = Vector3d::Zero();
+//    Vector3d wheel_imu_predict_V = Vector3d::Zero();
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
@@ -142,6 +142,10 @@ public:
     // imu and base odom integration for current frame
     std::shared_ptr<IntegrationBase> tmp_pre_integration;
     std::shared_ptr<BaseOdometryIntegration3D> tmp_base_integration;
+
+    // check wheel slip
+    std::shared_ptr<BaseOdometryIntegration3D> wheel_imu_predict;
+    std::vector<pair<double, double>> wheel_slip_periods;
 
     BaseOdometryIntegration3D base_integration_before_init;
     Eigen::Quaterniond init_orientation;
