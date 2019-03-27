@@ -77,3 +77,8 @@ add_executable(excalib
 )
 
 target_link_libraries(excalib ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})
+
+add_executable(modify-bag
+    src/modify_bag.cpp
+)
+target_link_libraries(modify-bag ${catkin_LIBRARIES} ${OpenCV_LIBS})
