@@ -62,6 +62,34 @@ public:
         MARGIN_SECOND_NEW = 1
     };
 
+    std::vector<std::pair<string, double>> status;
+    void status_log_p(const string& name, const Affine3d& value) {
+        status_log_p(name, value.translation());
+    }
+    void status_log_p(const string& name, const Vector3d& value) {
+        status.emplace_back(name + "_x", value.x());
+        status.emplace_back(name + "_y", value.y());
+        status.emplace_back(name + "_z", value.z());
+    }
+    void status_log_ypr(const string& name, const Affine3d& value) {
+        status_log_ypr(name, Utility::R2ypr(value.linear()));
+    }
+    void status_log_ypr(const string& name, const Quaterniond& value) {
+        status_log_ypr(name, value.toRotationMatrix());
+    }
+    void status_log_ypr(const string& name, const Matrix3d& value) {
+        status_log_ypr(name, Utility::R2ypr(value));
+    }
+    void status_log_ypr(const string& name, const Vector3d& value) {
+        status.emplace_back(name + "_yaw", value.x());
+        status.emplace_back(name + "_pitch", value.y());
+        status.emplace_back(name + "_roll", value.z());
+    }
+    std::vector<string> history_index;
+    std::map<string, std::vector<double>> history_status;
+    void log_status();
+    void save_history(string path);
+
     SolverFlag solver_flag;
     MarginalizationFlag  marginalization_flag;
     Vector3d g;                 // gravity in first cam frame (when INITIAL) OR in world frame (when NON_LINEAR)
@@ -145,10 +173,9 @@ public:
 
     // check wheel slip
     std::shared_ptr<BaseOdometryIntegration3D> wheel_imu_predict;
-    std::vector<pair<double, double>> wheel_slip_periods;
+    std::list<pair<double, double>> wheel_slip_periods;
 
     BaseOdometryIntegration3D base_integration_before_init;
-    Eigen::Quaterniond init_orientation;
 
     // wheel only odometry
     BaseOdometryIntegration3D wheel_only_odom;
@@ -157,8 +184,8 @@ public:
 //    WheelOdometryNoiseAnalyser wheel_odom_niose_analyser = { 10 };
 
     // wheel imu fusion window
-    std::deque<std::shared_ptr<IntegrationBase>> wi_imu_integrations = {std::shared_ptr<IntegrationBase>()};
-    std::deque<std::shared_ptr<BaseOdometryIntegration3D>> wi_base_integrations = {std::shared_ptr<BaseOdometryIntegration3D>()};
+//    std::deque<std::shared_ptr<IntegrationBase>> wi_imu_integrations = {std::shared_ptr<IntegrationBase>()};
+//    std::deque<std::shared_ptr<BaseOdometryIntegration3D>> wi_base_integrations = {std::shared_ptr<BaseOdometryIntegration3D>()};
 
     //relocalization variable
     bool relocalization_info;

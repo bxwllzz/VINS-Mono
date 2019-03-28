@@ -524,13 +524,20 @@ public:
     }
 
     void process() {
+        ros::Time last_measure;
         do {
             unique_lock<mutex> lk(m_buf);
-            if (cv.wait_for(lk, chrono::milliseconds(100)) == std::cv_status::timeout)
+            if (cv.wait_for(lk, chrono::milliseconds(100)) == std::cv_status::timeout) {
+                if (!last_measure.isZero() && ros::Time::now() - last_measure >= ros::Duration(1)) {
+                    estimator.save_history("/tmp/viwns_result_no_loop.csv");
+                    last_measure = {};
+                }
                 continue;
+            }
             Measurement measurement;
             try {
                 measurement = get_measurement(ros::Duration(estimator.td), ros::Duration(estimator.td_bo));
+                last_measure = ros::Time::now();
             } catch (const std::range_error& e) {
 //                ROS_INFO_STREAM("No measure: " << e.what());
                 continue;
@@ -627,7 +634,6 @@ public:
                 std_msgs::Header header = img_msg->header;
                 header.frame_id = "world";
 
-                pubWheelOdomPathTF(estimator, header);
                 pubOdometry(estimator, header);
                 pubKeyPoses(estimator, header);
                 pubCameraPose(estimator, header);
@@ -649,6 +655,8 @@ public:
                     }
                 }
                 ROS_DEBUG("processed vision data with stamp %f \n", img_msg->header.stamp.toSec());
+
+                estimator.log_status();
             }
         } while (nh.ok());
     }

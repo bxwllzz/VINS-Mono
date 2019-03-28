@@ -100,6 +100,10 @@ public:
 
     void repropagate(const Eigen::Vector3d& _bg);
 
+    Eigen::Affine3d transform() const {
+        return Eigen::Translation3d(delta_p) * delta_q;
+    }
+
     Eigen::Matrix<double, 3, 1> evaluate(const Eigen::Vector3d &Pi, const Eigen::Quaterniond &Qi, const Eigen::Vector3d &Bgi,
                                           const Eigen::Vector3d &Pj, const Eigen::Quaterniond &Qj, bool debug = false);
 

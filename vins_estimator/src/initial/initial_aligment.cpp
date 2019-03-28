@@ -37,6 +37,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     {
         frame_j = next(frame_i);
         frame_j->second.pre_integration->repropagate(Vector3d::Zero(), Bgs[0]);
+        frame_j->second.base_integration->repropagate(Bgs[0]);
     }
 }
 
@@ -74,6 +75,7 @@ void solveGyroBiasByWheelOdom(map<double, ImageFrame> &all_image_frame, Vector3d
     {
         frame_j = next(frame_i);
         frame_j->second.pre_integration->repropagate(Vector3d::Zero(), Bgs[0]);
+        frame_j->second.base_integration->repropagate(Bgs[0]);
     }
 }
 
@@ -568,7 +570,7 @@ void base_imu_alignment_fixed_scale_g(const vector<pair<std::shared_ptr<Integrat
 }
 
 // base wheel odometry align with IMU
-bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x, VectorXd &refined_x) {
+bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x) {
 
     TicToc tic;
 
@@ -596,6 +598,7 @@ bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &
     ROS_INFO("cost %f ms", tic.toc());
     tic.tic();
 
+    // refine g
     {
         // R_b0_bk
         std::vector<Eigen::Matrix3d> rotations;
@@ -678,8 +681,8 @@ bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &
             }
             A = A * 1000.0;
             b = b * 1000.0;
-            refined_x = A.ldlt().solve(b);
-            VectorXd dg = refined_x.segment<2>(n_state - 2);
+            x = A.ldlt().solve(b);
+            VectorXd dg = x.segment<2>(n_state - 2);
             g0 = (g0 + lxly * dg).normalized() * G.norm();
         }
 
@@ -695,36 +698,11 @@ bool BaseIMULinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &
 bool WheelOdomIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)
 {
     solveGyroBiasByWheelOdom(all_image_frame, Bgs);
-
-    VectorXd refined_x;
-    if(BaseIMULinearAlignment(all_image_frame, g, x, refined_x)) {
-        x = refined_x;
-        return true;
-    } else
-        return false;
+    return BaseIMULinearAlignment(all_image_frame, g, x);
 }
 
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)
 {
     solveGyroscopeBias(all_image_frame, Bgs);
-
-//    auto still_bg = solveStillGyroBias(all_image_frame);
-//    ROS_INFO_STREAM("Bg VIO:" << Bgs[WINDOW_SIZE].transpose() << " Still:" << still_bg.transpose());
-
-//    VectorXd refined_x;
-//    BaseIMUAlignment(all_image_frame, g, x, refined_x);
-//
-//    auto x_backup = x;
-
-    if(LinearAlignment(all_image_frame, g, x)) {
-//        for (int i = 0; i < all_image_frame.size(); i++) {
-//            Matrix3d m;
-//            m.col(0) = RIO.transpose() * x.segment<3>(i * 3);
-//            m.col(1) = RIO.transpose() * refined_x.segment<3>(i * 3);
-//            m.col(2) = RIO.transpose() * x_backup.segment<3>(i * 3);
-//            ROS_INFO_STREAM(i << " v^base_imu:" << std::endl << m);
-//        }
-        return true;
-    } else
-        return false;
+    return LinearAlignment(all_image_frame, g, x);
 }

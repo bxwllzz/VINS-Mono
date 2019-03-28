@@ -23,11 +23,6 @@ ros::Publisher pub_keyframe_point;
 ros::Publisher pub_extrinsic;
 
 // debug
-ros::Publisher pub_velocity_yaw;
-ros::Publisher pub_orig_odom;
-ros::Publisher pub_filted_odom;
-ros::Publisher pub_orig_imu;
-ros::Publisher pub_filted_imu;
 ros::Publisher pub_scale;
 ros::Publisher pub_bias;
 ros::Publisher pub_imu_predict;
@@ -40,6 +35,70 @@ CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
 CameraPoseVisualization keyframebasevisual(0.0, 0.0, 1.0, 1.0);
 static double sum_of_path = 0;
 static Vector3d last_path(0.0, 0.0, 0.0);
+
+static geometry_msgs::Vector3 Vector3d2Vector3(const Vector3d& in) {
+    geometry_msgs::Vector3 out;
+    out.x = in.x();
+    out.y = in.y();
+    out.z = in.z();
+    return out;
+}
+
+static geometry_msgs::Point Vector3d2Point(const Vector3d& in) {
+    geometry_msgs::Point out;
+    out.x = in.x();
+    out.y = in.y();
+    out.z = in.z();
+    return out;
+}
+
+static geometry_msgs::Quaternion Q2wxyz(const Quaterniond& in) {
+    geometry_msgs::Quaternion out;
+    out.w = in.w();
+    out.x = in.x();
+    out.y = in.y();
+    out.z = in.z();
+    return out;
+}
+
+static geometry_msgs::Quaternion R2wxyz(const Matrix3d& in) {
+    Quaterniond q(in);
+    geometry_msgs::Quaternion out;
+    out.w = q.w();
+    out.x = q.x();
+    out.y = q.y();
+    out.z = q.z();
+    return out;
+}
+
+static geometry_msgs::Pose Affine3d2Pose(const Affine3d& in) {
+    geometry_msgs::Pose out;
+    out.position = Vector3d2Point(in.translation());
+    out.orientation = Q2wxyz(Quaterniond(in.rotation()));
+    return out;
+}
+
+static geometry_msgs::Pose Rp2Pose(const Matrix3d& R, const Vector3d& p) {
+    geometry_msgs::Pose out;
+    out.position = Vector3d2Point(p);
+    out.orientation = Q2wxyz(Quaterniond(R));
+    return out;
+}
+static geometry_msgs::Pose Rp2Pose(const Quaterniond& q, const Vector3d& p) {
+    geometry_msgs::Pose out;
+    out.position = Vector3d2Point(p);
+    out.orientation = Q2wxyz(q);
+    return out;
+}
+
+static tf::Transform Affine3d2Transform(const Affine3d &T) {
+    Matrix3d M = T.rotation();
+    Vector3d p = T.translation();
+    return tf::Transform(tf::Matrix3x3(M(0, 0), M(0, 1), M(0, 2),
+                                       M(1, 0), M(1, 1), M(1, 2),
+                                       M(2, 0), M(2, 1), M(2, 2)),
+                         tf::Vector3(p[0], p[1], p[2]));
+}
 
 void registerPub(ros::NodeHandle &n)
 {
@@ -62,11 +121,6 @@ void registerPub(ros::NodeHandle &n)
     pub_relo_relative_pose = n.advertise<nav_msgs::Odometry>("relo_relative_pose", 1000);
 
     // debug
-    pub_velocity_yaw = n.advertise<nav_msgs::Odometry>("velocity_yaw", 1000);
-    pub_orig_odom = n.advertise<nav_msgs::Odometry>("orig_odom", 1000);
-    pub_filted_odom = n.advertise<nav_msgs::Odometry>("filted_odom", 1000);
-    pub_orig_imu = n.advertise<sensor_msgs::Imu>("orig_imu", 1000);
-    pub_filted_imu = n.advertise<sensor_msgs::Imu>("filted_imu", 1000);
     pub_scale = n.advertise<std_msgs::Float64MultiArray>("scale", 1000);
     pub_bias = n.advertise<sensor_msgs::Imu>("bias", 1000);
     pub_imu_predict = n.advertise<nav_msgs::Odometry>("imu_predict", 1000);
@@ -81,200 +135,14 @@ void registerPub(ros::NodeHandle &n)
     keyframebasevisual.setLineWidth(0.01);
 }
 
-void pubWheelOdomPathTF(const Estimator &estimator, const std_msgs::Header &header) {
-
-    geometry_msgs::PoseStamped pose_stamped;
-
-    // publish wheel only odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_odom";
-    pose_stamped.pose.position.x = estimator.wheel_only_odom.delta_p.x();
-    pose_stamped.pose.position.y = estimator.wheel_only_odom.delta_p.y();
-    pose_stamped.pose.position.z = estimator.wheel_only_odom.delta_p.z();
-    pose_stamped.pose.orientation.x = estimator.wheel_only_odom.delta_q.x();
-    pose_stamped.pose.orientation.y = estimator.wheel_only_odom.delta_q.y();
-    pose_stamped.pose.orientation.z = estimator.wheel_only_odom.delta_q.z();
-    pose_stamped.pose.orientation.w = estimator.wheel_only_odom.delta_q.w();
-    wheel_path.header = header;
-    wheel_path.header.frame_id = "wheel_odom";
-    wheel_path.poses.emplace_back(pose_stamped);
-    pub_wheel_path.publish(wheel_path);
-
-    // publish wheel-imu-fusion odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_imu_odom";
-    pose_stamped.pose.position.x = estimator.wheel_imu_odom.delta_p.x();
-    pose_stamped.pose.position.y = estimator.wheel_imu_odom.delta_p.y();
-    pose_stamped.pose.position.z = estimator.wheel_imu_odom.delta_p.z();
-    pose_stamped.pose.orientation.x = estimator.wheel_imu_odom.delta_q.x();
-    pose_stamped.pose.orientation.y = estimator.wheel_imu_odom.delta_q.y();
-    pose_stamped.pose.orientation.z = estimator.wheel_imu_odom.delta_q.z();
-    pose_stamped.pose.orientation.w = estimator.wheel_imu_odom.delta_q.w();
-    wheel_imu_path.header = header;
-    wheel_imu_path.header.frame_id = "wheel_imu_odom";
-    wheel_imu_path.poses.emplace_back(pose_stamped);
-    pub_wheel_imu_path.publish(wheel_imu_path);
-
-    // publish wheel-imu-fusion odometry 3D path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_imu_odom3D";
-    pose_stamped.pose.position.x = estimator.wheel_imu_odom3D.delta_p.x();
-    pose_stamped.pose.position.y = estimator.wheel_imu_odom3D.delta_p.y();
-    pose_stamped.pose.position.z = estimator.wheel_imu_odom3D.delta_p.z();
-    pose_stamped.pose.orientation.x = estimator.wheel_imu_odom3D.delta_q.x();
-    pose_stamped.pose.orientation.y = estimator.wheel_imu_odom3D.delta_q.y();
-    pose_stamped.pose.orientation.z = estimator.wheel_imu_odom3D.delta_q.z();
-    pose_stamped.pose.orientation.w = estimator.wheel_imu_odom3D.delta_q.w();
-    wheel_imu_path3D.header = header;
-    wheel_imu_path3D.header.frame_id = "wheel_imu_odom3D";
-    wheel_imu_path3D.poses.emplace_back(pose_stamped);
-    pub_wheel_imu_path3D.publish(wheel_imu_path3D);
-
-    static tf::TransformBroadcaster br;
-    tf::Transform transform;
-
-    // broadcast base_footprint -> wheel_odom
-    Affine3d T_wheelodom_base =
-            Translation3d(estimator.wheel_only_odom.delta_p)
-            * estimator.wheel_only_odom.delta_q;
-    Affine3d T_base_wheelodom = T_wheelodom_base.inverse();
-    transform.setOrigin({ T_base_wheelodom.translation().x(),
-                          T_base_wheelodom.translation().y(),
-                          T_base_wheelodom.translation().z() });
-    Quaterniond q_base_wheelodom(T_base_wheelodom.rotation());
-    transform.setRotation({ q_base_wheelodom.x(),
-                            q_base_wheelodom.y(),
-                            q_base_wheelodom.z(),
-                            q_base_wheelodom.w()});
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom
-    Affine3d T_wheelimuodom_base =
-            Translation3d(estimator.wheel_imu_odom.delta_p)
-            * estimator.wheel_imu_odom.delta_q;
-    Affine3d T_base_wheelimuodom = T_wheelimuodom_base.inverse();
-    transform.setOrigin({ T_base_wheelimuodom.translation().x(),
-                          T_base_wheelimuodom.translation().y(),
-                          T_base_wheelimuodom.translation().z() });
-    Quaterniond q_base_wheelimuodom(T_base_wheelimuodom.rotation());
-    transform.setRotation({ q_base_wheelimuodom.x(),
-                            q_base_wheelimuodom.y(),
-                            q_base_wheelimuodom.z(),
-                            q_base_wheelimuodom.w()});
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom3D
-    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_p) * estimator.wheel_imu_odom3D.delta_q;
-    Affine3d T_base_wheelimuodom3D = T_wheelimuodom3D_base.inverse();
-    Quaterniond q_base_wheelimuodom3D(T_base_wheelimuodom3D.rotation());
-    transform.setOrigin({ T_base_wheelimuodom3D.translation().x(),
-                          T_base_wheelimuodom3D.translation().y(),
-                          T_base_wheelimuodom3D.translation().z() });
-    transform.setRotation({ q_base_wheelimuodom3D.x(),
-                            q_base_wheelimuodom3D.y(),
-                            q_base_wheelimuodom3D.z(),
-                            q_base_wheelimuodom3D.w() });
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "base_footprint", "wheel_imu_odom3D"));
-
-//    static std_msgs::Header prev_header;
-//    static Vector3d prev_vel_wheelimuodom;
-//    nav_msgs::Odometry msg;
-//    msg.header = header;
-////    msg.pose.pose.position.x = estimator.wheel_only_odom.measurements.back().velocity.second;
-////    msg.pose.pose.position.y = estimator.wheel_imu_odom.measurements.back().velocity.second;
-////    msg.pose.pose.orientation.x = estimator.wheel_only_odom.delta_yaw / M_PI * 180;
-////    msg.pose.pose.orientation.y = estimator.wheel_imu_odom.delta_yaw / M_PI * 180;
-//    if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
-//        // 世界坐标系下轮式里程计的速度
-////        double yaw = Utility::R2ypr(estimator.Rs[WINDOW_SIZE])[0] / 180 * M_PI;
-//        Vector3d vel_odom;
-//        vel_odom << estimator.wheel_imu_odom3D.measurements.back().velocity.first.x(),
-//                    estimator.wheel_imu_odom3D.measurements.back().velocity.first.y(), 0;
-//        Vector3d vel_wheelimuodom = estimator.wheel_imu_odom3D.delta_q * vel_odom;
-//        msg.twist.twist.linear.x = vel_wheelimuodom.x();
-//        msg.twist.twist.linear.y = vel_wheelimuodom.y();
-//        msg.twist.twist.linear.y = vel_wheelimuodom.z();
-//
-//        Quaterniond q_world_imu(estimator.Rs[WINDOW_SIZE]);
-//        q_world_imu = q_world_imu * estimator.tmp_pre_integration->delta_q;
-//        Quaterniond q_world_base(estimator.rib.inverse() * estimator.tmp_pre_integration->delta_q * estimator.rib);
-//        Vector3d ypr = Utility::R2ypr(q_world_base.toRotationMatrix()) / 180 * M_PI;
-//        double pitch = ypr[1];
-//        double roll = ypr[2];
-//        double yaw = ypr[0];
-//        msg.twist.twist.angular.x = roll / M_PI * 180;
-//        msg.twist.twist.angular.y = pitch / M_PI * 180;
-//        msg.twist.twist.angular.z = yaw / M_PI * 180;
-//
-//        if (!prev_header.stamp.isZero()) {
-//            Vector3d acc_wheelimuodom = (vel_wheelimuodom - prev_vel_wheelimuodom) / (header.stamp - prev_header.stamp).toSec();
-//            msg.pose.pose.position.x = acc_wheelimuodom.x();
-//            msg.pose.pose.position.y = acc_wheelimuodom.y();
-//            msg.pose.pose.position.z = acc_wheelimuodom.norm();
-//        }
-//        prev_header = header;
-//        prev_vel_wheelimuodom = vel_wheelimuodom;
-//        pub_velocity_yaw.publish(msg);
-//    }
-}
-
-void pubMixedOdom(const std_msgs::Header& header, const MixedOdomMeasurement& orig_m, const MixedOdomMeasurement& filted_m) {
-    nav_msgs::Odometry orig_odom;
-    orig_odom.header = header;
-    orig_odom.header.frame_id = "base_footprint";
-    orig_odom.twist.twist.linear.x = orig_m.velocity.first.x();
-    orig_odom.twist.twist.linear.y = orig_m.velocity.first.y();
-    orig_odom.twist.twist.angular.z = orig_m.velocity.second;
-    pub_orig_odom.publish(orig_odom);
-
-    nav_msgs::Odometry filted_odom;
-    filted_odom.header = header;
-    filted_odom.header.frame_id = "base_footprint";
-    filted_odom.twist.twist.linear.x = filted_m.velocity.first.x();
-    filted_odom.twist.twist.linear.y = filted_m.velocity.first.y();
-    filted_odom.twist.twist.angular.z = filted_m.velocity.second;
-    pub_filted_odom.publish(filted_odom);
-
-    sensor_msgs::Imu orig_imu;
-    orig_imu.header = header;
-    orig_imu.header.frame_id = "base_footprint";
-    orig_imu.linear_acceleration.x = orig_m.imu_linear_acceleration.x();
-    orig_imu.linear_acceleration.y = orig_m.imu_linear_acceleration.y();
-    orig_imu.linear_acceleration.z = orig_m.imu_linear_acceleration.z();
-    orig_imu.angular_velocity.x = orig_m.imu_angular_velocity.x();
-    orig_imu.angular_velocity.y = orig_m.imu_angular_velocity.y();
-    orig_imu.angular_velocity.z = orig_m.imu_angular_velocity.z();
-    pub_orig_imu.publish(orig_imu);
-
-    sensor_msgs::Imu filted_imu;
-    filted_imu.header = header;
-    filted_imu.header.frame_id = "base_footprint";
-    filted_imu.linear_acceleration.x = filted_m.imu_linear_acceleration.x();
-    filted_imu.linear_acceleration.y = filted_m.imu_linear_acceleration.y();
-    filted_imu.linear_acceleration.z = filted_m.imu_linear_acceleration.z();
-    filted_imu.angular_velocity.x = filted_m.imu_angular_velocity.x();
-    filted_imu.angular_velocity.y = filted_m.imu_angular_velocity.y();
-    filted_imu.angular_velocity.z = filted_m.imu_angular_velocity.z();
-    pub_filted_imu.publish(filted_imu);
-}
-
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, const std_msgs::Header &header)
 {
-    Eigen::Quaterniond quadrotor_Q = Q ;
-
     nav_msgs::Odometry odometry;
     odometry.header = header;
     odometry.header.frame_id = "world";
-    odometry.pose.pose.position.x = P.x();
-    odometry.pose.pose.position.y = P.y();
-    odometry.pose.pose.position.z = P.z();
-    odometry.pose.pose.orientation.x = quadrotor_Q.x();
-    odometry.pose.pose.orientation.y = quadrotor_Q.y();
-    odometry.pose.pose.orientation.z = quadrotor_Q.z();
-    odometry.pose.pose.orientation.w = quadrotor_Q.w();
-    odometry.twist.twist.linear.x = V.x();
-    odometry.twist.twist.linear.y = V.y();
-    odometry.twist.twist.linear.z = V.z();
+    odometry.pose.pose.position = Vector3d2Point(P);
+    odometry.pose.pose.orientation = Q2wxyz(Q);
+    odometry.twist.twist.linear = Vector3d2Vector3(V);
     pub_latest_odometry.publish(odometry);
 }
 
@@ -328,24 +196,53 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
 {
 
     //debug
-    try {
-        vector<double> window_info = {
-                estimator.window_info.at("dt"),
-                estimator.window_info.at("dp"),
-                estimator.window_info.at("err_p"),
-                estimator.window_info.at("err_v"),
-                estimator.window_info.at("scale"),
-                estimator.window_info.at("g"),
-                estimator.window_info.at("gx"),
-                estimator.window_info.at("gy"),
-                estimator.window_info.at("gz"),
-        };
-        std_msgs::Float64MultiArray msg_window_info;
-        msg_window_info.data = window_info;
-        pub_window_info.publish(msg_window_info);
-    } catch (std::out_of_range err) {
+//    try {
+//        vector<double> window_info = {
+//                estimator.window_info.at("dt"),
+//                estimator.window_info.at("dp"),
+//                estimator.window_info.at("err_p"),
+//                estimator.window_info.at("err_v"),
+//                estimator.window_info.at("scale"),
+//                estimator.window_info.at("g"),
+//                estimator.window_info.at("gx"),
+//                estimator.window_info.at("gy"),
+//                estimator.window_info.at("gz"),
+//        };
+//        std_msgs::Float64MultiArray msg_window_info;
+//        msg_window_info.data = window_info;
+//        pub_window_info.publish(msg_window_info);
+//    } catch (std::out_of_range err) {
+//
+//    }
 
-    }
+    geometry_msgs::PoseStamped pose_stamped;
+
+    // publish wheel only odometry path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_odom";
+    pose_stamped.pose = Affine3d2Pose(estimator.wheel_only_odom.transform());
+    wheel_path.header = header;
+    wheel_path.header.frame_id = "wheel_odom";
+    wheel_path.poses.emplace_back(pose_stamped);
+    pub_wheel_path.publish(wheel_path);
+
+    // publish wheel-imu-fusion odometry path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_imu_odom";
+    pose_stamped.pose = Affine3d2Pose(estimator.wheel_imu_odom.transform());
+    wheel_imu_path.header = header;
+    wheel_imu_path.header.frame_id = "wheel_imu_odom";
+    wheel_imu_path.poses.emplace_back(pose_stamped);
+    pub_wheel_imu_path.publish(wheel_imu_path);
+
+    // publish wheel-imu-fusion odometry 3D path
+    pose_stamped.header = header;
+    pose_stamped.header.frame_id = "wheel_imu_odom3D";
+    pose_stamped.pose = Affine3d2Pose(estimator.wheel_imu_odom3D.transform());
+    wheel_imu_path3D.header = header;
+    wheel_imu_path3D.header.frame_id = "wheel_imu_odom3D";
+    wheel_imu_path3D.poses.emplace_back(pose_stamped);
+    pub_wheel_imu_path3D.publish(wheel_imu_path3D);
 
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
     {
@@ -353,20 +250,8 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         odometry.header = header;
         odometry.header.frame_id = "world";
         odometry.child_frame_id = "body";
-        Quaterniond tmp_Q;
-        tmp_Q = Quaterniond(estimator.Rs[WINDOW_SIZE]);
-        odometry.pose.pose.position.x = estimator.Ps[WINDOW_SIZE].x();
-        odometry.pose.pose.position.y = estimator.Ps[WINDOW_SIZE].y();
-        odometry.pose.pose.position.z = estimator.Ps[WINDOW_SIZE].z();
-        odometry.pose.pose.orientation.x = tmp_Q.x();
-        odometry.pose.pose.orientation.y = tmp_Q.y();
-        odometry.pose.pose.orientation.z = tmp_Q.z();
-        odometry.pose.pose.orientation.w = tmp_Q.w();
-        // V^b = R^b_w * V^w
-        Vector3d tmp_vel = estimator.Rs[WINDOW_SIZE].inverse() * estimator.Vs[WINDOW_SIZE];
-        odometry.twist.twist.linear.x = tmp_vel.x();
-        odometry.twist.twist.linear.y = tmp_vel.y();
-        odometry.twist.twist.linear.z = tmp_vel.z();
+        odometry.pose.pose = Rp2Pose(estimator.Rs[WINDOW_SIZE], estimator.Ps[WINDOW_SIZE]);
+        odometry.twist.twist.linear = Vector3d2Vector3(estimator.Rs[WINDOW_SIZE].inverse() * estimator.Vs[WINDOW_SIZE]);
         pub_odometry.publish(odometry);
 
         geometry_msgs::PoseStamped pose_stamped;
@@ -383,15 +268,7 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         pose_stamped.header.frame_id = "world";
         Affine3d T_world_imu = Translation3d(estimator.Ps[WINDOW_SIZE]) * estimator.Rs[WINDOW_SIZE];
         Affine3d T_imu_base = Translation3d(estimator.tio) * estimator.rio;
-        Affine3d T_world_base = T_world_imu * T_imu_base;
-        Quaterniond q_world_base = Quaterniond(T_world_base.linear());
-        pose_stamped.pose.position.x = T_world_base.translation().x();
-        pose_stamped.pose.position.y = T_world_base.translation().y();
-        pose_stamped.pose.position.z = T_world_base.translation().z();
-        pose_stamped.pose.orientation.x = q_world_base.x();
-        pose_stamped.pose.orientation.y = q_world_base.y();
-        pose_stamped.pose.orientation.z = q_world_base.z();
-        pose_stamped.pose.orientation.w = q_world_base.w();
+        pose_stamped.pose = Affine3d2Pose(T_world_imu * T_imu_base);
         vio_base_path.header = header;
         vio_base_path.header.frame_id = "world";
         vio_base_path.poses.push_back(pose_stamped);
@@ -402,13 +279,7 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         Quaterniond correct_q;
         correct_t = estimator.drift_correct_r * estimator.Ps[WINDOW_SIZE] + estimator.drift_correct_t;
         correct_q = estimator.drift_correct_r * estimator.Rs[WINDOW_SIZE];
-        odometry.pose.pose.position.x = correct_t.x();
-        odometry.pose.pose.position.y = correct_t.y();
-        odometry.pose.pose.position.z = correct_t.z();
-        odometry.pose.pose.orientation.x = correct_q.x();
-        odometry.pose.pose.orientation.y = correct_q.y();
-        odometry.pose.pose.orientation.z = correct_q.z();
-        odometry.pose.pose.orientation.w = correct_q.w();
+        odometry.pose.pose = Rp2Pose(correct_q, correct_t);
 
         pose_stamped.pose = odometry.pose.pose;
         relo_path.header = header;
@@ -419,12 +290,8 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         // debug pub bias imu
         sensor_msgs::Imu msg;
         msg.header = header;
-        msg.angular_velocity.x = estimator.Bgs[WINDOW_SIZE].x();
-        msg.angular_velocity.y = estimator.Bgs[WINDOW_SIZE].y();
-        msg.angular_velocity.z = estimator.Bgs[WINDOW_SIZE].z();
-        msg.linear_acceleration.x = estimator.Bas[WINDOW_SIZE].x();
-        msg.linear_acceleration.y = estimator.Bas[WINDOW_SIZE].y();
-        msg.linear_acceleration.z = estimator.Bas[WINDOW_SIZE].z();
+        msg.angular_velocity = Vector3d2Vector3(estimator.Bgs[WINDOW_SIZE]);
+        msg.linear_acceleration = Vector3d2Vector3(estimator.Bas[WINDOW_SIZE]);
         pub_bias.publish(msg);
         // debug pub lastest keyframe translation
 //        nav_msgs::Odometry msg_imu_predict;
@@ -453,22 +320,22 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
 
 
         // write result to file
-        ofstream foutC(VINS_RESULT_PATH, ios::app);
-        foutC.setf(ios::fixed, ios::floatfield);
-        foutC.precision(0);
-        foutC << header.stamp.toSec() * 1e9 << ",";
-        foutC.precision(5);
-        foutC << estimator.Ps[WINDOW_SIZE].x() << ","
-              << estimator.Ps[WINDOW_SIZE].y() << ","
-              << estimator.Ps[WINDOW_SIZE].z() << ","
-              << tmp_Q.w() << ","
-              << tmp_Q.x() << ","
-              << tmp_Q.y() << ","
-              << tmp_Q.z() << ","
-              << estimator.Vs[WINDOW_SIZE].x() << ","
-              << estimator.Vs[WINDOW_SIZE].y() << ","
-              << estimator.Vs[WINDOW_SIZE].z() << "," << endl;
-        foutC.close();
+//        ofstream foutC(VINS_RESULT_PATH, ios::app);
+//        foutC.setf(ios::fixed, ios::floatfield);
+//        foutC.precision(0);
+//        foutC << header.stamp.toSec() * 1e9 << ",";
+//        foutC.precision(5);
+//        foutC << estimator.Ps[WINDOW_SIZE].x() << ","
+//              << estimator.Ps[WINDOW_SIZE].y() << ","
+//              << estimator.Ps[WINDOW_SIZE].z() << ","
+//              << tmp_Q.w() << ","
+//              << tmp_Q.x() << ","
+//              << tmp_Q.y() << ","
+//              << tmp_Q.z() << ","
+//              << estimator.Vs[WINDOW_SIZE].x() << ","
+//              << estimator.Vs[WINDOW_SIZE].y() << ","
+//              << estimator.Vs[WINDOW_SIZE].z() << "," << endl;
+//        foutC.close();
     }
 }
 
@@ -493,12 +360,9 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header) {
     key_poses.color.a = 1.0;
 
     for (int i = 0; i <= WINDOW_SIZE; i++) {
-        geometry_msgs::Point pose_marker;
         Vector3d correct_pose;
         correct_pose = estimator.key_poses[i];
-        pose_marker.x = correct_pose.x();
-        pose_marker.y = correct_pose.y();
-        pose_marker.z = correct_pose.z();
+        geometry_msgs::Point pose_marker = Vector3d2Point(correct_pose);
         key_poses.points.push_back(pose_marker);
     }
     pub_key_poses.publish(key_poses);
@@ -564,14 +428,7 @@ void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)
         nav_msgs::Odometry odometry;
         odometry.header = header;
         odometry.header.frame_id = "world";
-        odometry.pose.pose.position.x = P.x();
-        odometry.pose.pose.position.y = P.y();
-        odometry.pose.pose.position.z = P.z();
-        odometry.pose.pose.orientation.x = R.x();
-        odometry.pose.pose.orientation.y = R.y();
-        odometry.pose.pose.orientation.z = R.z();
-        odometry.pose.pose.orientation.w = R.w();
-
+        odometry.pose.pose = Rp2Pose(R, P);
         pub_camera_pose.publish(odometry);
 
         cameraposevisual.reset();
@@ -639,114 +496,59 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
     pub_margin_cloud.publish(margin_cloud);
 }
 
-
 void pubTF(const Estimator &estimator, const std_msgs::Header &header)
 {
     static tf::TransformBroadcaster br;
-    tf::Transform transform;
 
-    tf::Quaternion q;
-    // camera frame
-    transform.setOrigin(tf::Vector3(estimator.tic[0].x(),
-                                    estimator.tic[0].y(),
-                                    estimator.tic[0].z()));
-    q.setW(Quaterniond(estimator.ric[0]).w());
-    q.setX(Quaterniond(estimator.ric[0]).x());
-    q.setY(Quaterniond(estimator.ric[0]).y());
-    q.setZ(Quaterniond(estimator.ric[0]).z());
-    transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "body", "camera"));
+    // fixed
+    Affine3d T_b_c = Translation3d(TIC[0]) * RIC[0];
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_c), header.stamp, "body", "camera"));
+    Affine3d T_b_o = Translation3d(TIO) * RIO;
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_o), header.stamp, "body", "base_footprint"));
+    Vector3d p_o_b = -RIO.inverse() * TIO;
+    Vector3d ypr_o_b = Utility::R2ypr(RIO.inverse());
+    ypr_o_b[1] = 0; ypr_o_b[2] = 0;
+    Affine3d T_worldbase_w = Translation3d(p_o_b) * Utility::ypr2R(ypr_o_b);
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_worldbase_w.inverse()), header.stamp, "world", "world_base"));
 
-    // base_footprint frame (T^imu_base)
-    transform.setOrigin(tf::Vector3(estimator.tio.x(),
-                                    estimator.tio.y(),
-                                    estimator.tio.z()));
-    q.setW(Quaterniond(estimator.rio).w());
-    q.setX(Quaterniond(estimator.rio).x());
-    q.setY(Quaterniond(estimator.rio).y());
-    q.setZ(Quaterniond(estimator.rio).z());
-    transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "body", "base_footprint"));
-
-    // world_base to world_base_origin
-    auto t_origin_base = estimator.base_integration_before_init.delta_p;
-    auto q_origin_base = estimator.base_integration_before_init.delta_q;
-    auto q_base_origin = q_origin_base.inverse();
-    auto t_base_origin = q_base_origin * -t_origin_base;
-    transform.setOrigin(tf::Vector3(t_base_origin.x(),
-                                    t_base_origin.y(),
-                                    t_base_origin.z()));
-    q.setW(q_base_origin.w());
-    q.setX(q_base_origin.x());
-    q.setY(q_base_origin.y());
-    q.setZ(q_base_origin.z());
-    transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, header.stamp, "world_base", "world_origin"));
+    // shared
+    Affine3d T_origin_worldbase = Translation3d(estimator.base_integration_before_init.delta_p)
+                                  * estimator.base_integration_before_init.delta_q;
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_origin_worldbase.inverse()), header.stamp, "world_base", "world_origin"));
 
     if( estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
-        // body frame
-        transform.setOrigin(tf::Vector3(estimator.Ps[WINDOW_SIZE](0),
-                                        estimator.Ps[WINDOW_SIZE](1),
-                                        estimator.Ps[WINDOW_SIZE](2)));
-        Quaterniond q_world_body(estimator.Rs[WINDOW_SIZE]);
-        q.setW(q_world_body.w());
-        q.setX(q_world_body.x());
-        q.setY(q_world_body.y());
-        q.setZ(q_world_body.z());
-        transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "body"));
-        // world (imu world) to world_base
-        auto t_world_worldbase = estimator.init_orientation * estimator.tio;
-        Quaterniond q_world_worldbase = estimator.init_orientation * Quaterniond(estimator.rio);
-        transform.setOrigin(tf::Vector3(t_world_worldbase.x(),
-                                        t_world_worldbase.y(),
-                                        t_world_worldbase.z()));
-        q.setW(q_world_worldbase.w());
-        q.setX(q_world_worldbase.x());
-        q.setY(q_world_worldbase.y());
-        q.setZ(q_world_worldbase.z());
-        transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "world_base"));
+        Affine3d T_w_b = Translation3d(estimator.Ps[WINDOW_SIZE])
+                         * estimator.Rs[WINDOW_SIZE];
+        br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header.stamp, "world", "body"));
     } else {
-        transform.setOrigin(tf::Vector3(0, 0, 0));
-        auto ypr_world_body = Utility::R2ypr(estimator.rio.inverse());
-        ypr_world_body[0] = 0;
-        Quaterniond q_world_body(Utility::ypr2R(ypr_world_body));
-        q.setW(q_world_body.w());
-        q.setX(q_world_body.x());
-        q.setY(q_world_body.y());
-        q.setZ(q_world_body.z());
-        transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "body"));
+        Affine3d T_origin_o = Translation3d(estimator.wheel_imu_odom.delta_p)
+                              * estimator.wheel_imu_odom.delta_q;
 
-        // world (imu world) to world_base
-        auto ypr_world_worldbase = Utility::R2ypr(estimator.rio.inverse());
-        ypr_world_worldbase[1] = 0;
-        ypr_world_worldbase[2] = 0;
-        Quaterniond q_world_worldbase(Utility::ypr2R(ypr_world_worldbase).inverse());
-        auto t_world_worldbase = q_world_body * estimator.tio;
-        transform.setOrigin(tf::Vector3(t_world_worldbase.x(),
-                                        t_world_worldbase.y(),
-                                        t_world_worldbase.z()));
-        q.setW(q_world_worldbase.w());
-        q.setX(q_world_worldbase.x());
-        q.setY(q_world_worldbase.y());
-        q.setZ(q_world_worldbase.z());
-        transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, header.stamp, "world", "world_base"));
+        Affine3d T_worldbase_o = T_origin_worldbase.inverse() * T_origin_o;
+        Affine3d T_w_b = T_worldbase_w.inverse() * T_worldbase_o * T_b_o.inverse();
+
+        br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header.stamp, "world", "body"));
     }
+
+    // broadcast base_footprint -> wheel_odom
+    Affine3d T_wheelodom_base = Translation3d(estimator.wheel_only_odom.delta_p)
+                                * estimator.wheel_only_odom.delta_q;
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelodom_base.inverse()), header.stamp, "base_footprint", "wheel_odom"));
+
+    // broadcast base_footprint -> wheel_imu_odom
+    Affine3d T_wheelimuodom_base = Translation3d(estimator.wheel_imu_odom.delta_p)
+                                   * estimator.wheel_imu_odom.delta_q;
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelimuodom_base.inverse()), header.stamp, "base_footprint", "wheel_imu_odom"));
+
+    // broadcast base_footprint -> wheel_imu_odom3D
+    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_p)
+                                     * estimator.wheel_imu_odom3D.delta_q;
+    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelimuodom3D_base.inverse()), header.stamp, "base_footprint", "wheel_imu_odom3D"));
 
     nav_msgs::Odometry odometry;
     odometry.header = header;
     odometry.header.frame_id = "world";
-    odometry.pose.pose.position.x = estimator.tic[0].x();
-    odometry.pose.pose.position.y = estimator.tic[0].y();
-    odometry.pose.pose.position.z = estimator.tic[0].z();
-    Quaterniond tmp_q{estimator.ric[0]};
-    odometry.pose.pose.orientation.x = tmp_q.x();
-    odometry.pose.pose.orientation.y = tmp_q.y();
-    odometry.pose.pose.orientation.z = tmp_q.z();
-    odometry.pose.pose.orientation.w = tmp_q.w();
+    odometry.pose.pose = Rp2Pose(estimator.ric[0], estimator.tic[0]);
     pub_extrinsic.publish(odometry);
 
 }
@@ -758,19 +560,12 @@ void pubKeyframe(const Estimator &estimator)
     {
         int i = WINDOW_SIZE - 2;
         //Vector3d P = estimator.Ps[i] + estimator.Rs[i] * estimator.tic[0];
-        Vector3d P = estimator.Ps[i];
-        Quaterniond R = Quaterniond(estimator.Rs[i]);
 
         nav_msgs::Odometry odometry;
         odometry.header = estimator.Headers[WINDOW_SIZE - 2];
         odometry.header.frame_id = "world";
-        odometry.pose.pose.position.x = P.x();
-        odometry.pose.pose.position.y = P.y();
-        odometry.pose.pose.position.z = P.z();
-        odometry.pose.pose.orientation.x = R.x();
-        odometry.pose.pose.orientation.y = R.y();
-        odometry.pose.pose.orientation.z = R.z();
-        odometry.pose.pose.orientation.w = R.w();
+        odometry.pose.pose = Rp2Pose(estimator.Rs[i], estimator.Ps[i]);
+
         //printf("time: %f t: %f %f %f r: %f %f %f %f\n", odometry.header.stamp.toSec(), P.x(), P.y(), P.z(), R.w(), R.x(), R.y(), R.z());
 
         pub_keyframe_pose.publish(odometry);
@@ -814,13 +609,7 @@ void pubRelocalization(const Estimator &estimator)
     nav_msgs::Odometry odometry;
     odometry.header.stamp = ros::Time(estimator.relo_frame_stamp);
     odometry.header.frame_id = "world";
-    odometry.pose.pose.position.x = estimator.relo_relative_t.x();
-    odometry.pose.pose.position.y = estimator.relo_relative_t.y();
-    odometry.pose.pose.position.z = estimator.relo_relative_t.z();
-    odometry.pose.pose.orientation.x = estimator.relo_relative_q.x();
-    odometry.pose.pose.orientation.y = estimator.relo_relative_q.y();
-    odometry.pose.pose.orientation.z = estimator.relo_relative_q.z();
-    odometry.pose.pose.orientation.w = estimator.relo_relative_q.w();
+    odometry.pose.pose = Rp2Pose(estimator.relo_relative_q, estimator.relo_relative_t);
     odometry.twist.twist.linear.x = estimator.relo_relative_yaw;
     odometry.twist.twist.linear.y = estimator.relo_frame_index;
 
