@@ -427,75 +427,79 @@ public:
         // generate
         Measurement m;
         m.img_msg = img_msg;
+
+        ros::Time imu_begin_t, imu_end_t, odom_begin_t, odom_end_t;
         if (feature_buf.size() == 1) {
-            // first measurement contains only 1 img and 1 imu
-            auto imu_end_t = m.img_msg->header.stamp + td_cam;
-            auto imu_end_data = ImuUtility::interplote(imu_buf, imu_end_t);
-            m.imu_msgs.emplace_back(
+            // first measurement
+            imu_begin_t = imu_buf.front()->header.stamp;
+            imu_end_t = m.img_msg->header.stamp + td_cam;
+            odom_begin_t = odom_buf.front().header.stamp;
+            odom_end_t = m.img_msg->header.stamp + td_cam - td_odom;
+            ROS_INFO("First measure: odom %lf sec, imu %lf sec",
+                     (odom_end_t - odom_begin_t).toSec(),
+                     (imu_end_t - imu_begin_t).toSec());
+        } else {
+            // other measurement
+            const auto &prev_img_t = feature_buf.front()->header.stamp;
+            imu_begin_t = prev_img_t + td_cam;
+            imu_end_t = m.img_msg->header.stamp + td_cam;
+            odom_begin_t = prev_img_t + td_cam - td_odom;
+            odom_end_t = m.img_msg->header.stamp + td_cam - td_odom;
+        }
+
+        // insert IMU to measurement
+        auto prev_imu_t = imu_begin_t;
+        for (const auto& imu_msg : imu_buf) {
+            if (imu_msg->header.stamp > imu_begin_t && imu_msg->header.stamp < imu_end_t) {
+                auto imu_t = imu_msg->header.stamp;
+                auto imu_data = ImuUtility::msg2data(imu_msg);
+                m.imu_msgs.emplace_back(
+                        imu_msg->header.stamp,
+                        imu_msg->header.stamp - prev_imu_t,
+                        imu_data,
+                        imu_buf.back());
+                prev_imu_t = imu_t;
+            }
+        }
+        m.imu_msgs.emplace_back(
                 imu_end_t,
-                imu_end_t - ros::Time(),
+                imu_end_t - prev_imu_t,
                 ImuUtility::interplote(imu_buf, imu_end_t),
                 imu_buf.back());
-        } else {
-            const auto& prev_img_t = feature_buf.front()->header.stamp;
 
-            auto imu_begin_t = prev_img_t + td_cam;
-            auto imu_end_t = m.img_msg->header.stamp + td_cam;
-            auto prev_imu_t = imu_begin_t;
-            for (const auto& imu_msg : imu_buf) {
-                if (imu_msg->header.stamp > imu_begin_t && imu_msg->header.stamp < imu_end_t) {
-                    auto imu_t = imu_msg->header.stamp;
-                    auto imu_data = ImuUtility::msg2data(imu_msg);
-                    m.imu_msgs.emplace_back(
-                            imu_msg->header.stamp,
-                            imu_msg->header.stamp - prev_imu_t,
-                            imu_data,
-                            imu_buf.back());
-                    prev_imu_t = imu_t;
-                }
+        // insert odom to measurement
+        auto odom_begin_pose = OdomUtility::interplote(odom_buf, odom_begin_t);
+        auto odom_end_pose = OdomUtility::interplote(odom_buf, odom_end_t);
+        auto prev_odom_t = odom_begin_t;
+        auto prev_odom_pose = odom_begin_pose;
+        for (const auto& odom_msg : odom_buf) {
+            ros::Time odom_t;
+            OdomPoseMeasurement odom_pose;
+            if (odom_msg.header.stamp > odom_begin_t && odom_msg.header.stamp < odom_end_t) {
+                odom_t = odom_msg.header.stamp;
+                odom_pose = odom_msg;
+            } else if (odom_msg.header.stamp >= odom_end_t) {
+                odom_t = odom_end_t;
+                odom_pose = odom_end_pose;
+            } else {
+                continue;
             }
-            m.imu_msgs.emplace_back(
-                    imu_end_t,
-                    imu_end_t - prev_imu_t,
-                    ImuUtility::interplote(imu_buf, imu_end_t),
-                    imu_buf.back());
 
-            auto odom_begin_t = prev_img_t + td_cam - td_odom;
-            auto odom_end_t = m.img_msg->header.stamp + td_cam - td_odom;
-            auto odom_begin_pose = OdomUtility::interplote(odom_buf, odom_begin_t);
-            auto odom_end_pose = OdomUtility::interplote(odom_buf, odom_end_t);
-
-            auto prev_odom_t = odom_begin_t;
-            auto prev_odom_pose = odom_begin_pose;
-            for (const auto& odom_msg : odom_buf) {
-                ros::Time odom_t;
-                OdomPoseMeasurement odom_pose;
-                if (odom_msg.header.stamp > odom_begin_t && odom_msg.header.stamp < odom_end_t) {
-                    odom_t = odom_msg.header.stamp;
-                    odom_pose = odom_msg;
-                } else if (odom_msg.header.stamp >= odom_end_t) {
-                    odom_t = odom_end_t;
-                    odom_pose = odom_end_pose;
-                } else {
-                    continue;
-                }
-
-                OdomMeasurement odom_m;
-                odom_m.header = odom_buf.back().header;
-                odom_m.header.stamp = odom_t;
-                odom_m.dt = (odom_t - prev_odom_t).toSec();
-                odom_m.velocity = BaseOdometryIntegration::differential(odom_m.dt, prev_odom_pose.pose, odom_pose.pose);
-                odom_m.constraint_error_vel = (odom_pose.constraint_error - prev_odom_pose.constraint_error) / odom_m.dt;
+            OdomMeasurement odom_m;
+            odom_m.header = odom_buf.back().header;
+            odom_m.header.stamp = odom_t;
+            odom_m.dt = (odom_t - prev_odom_t).toSec();
+            odom_m.velocity = BaseOdometryIntegration::differential(odom_m.dt, prev_odom_pose.pose, odom_pose.pose);
+            odom_m.constraint_error_vel = (odom_pose.constraint_error - prev_odom_pose.constraint_error) / odom_m.dt;
 //                ROS_INFO_STREAM(prev_odom_pose << " -> " << odom_pose << " = " << odom_m.velocity);
 
-                auto acc_gyro = ImuUtility::average(imu_buf, prev_odom_t, odom_t);
-                m.odom_aligned_msgs.emplace_back(odom_m, acc_gyro);
+            auto acc_gyro = ImuUtility::average(imu_buf, prev_odom_t, odom_t);
+            m.odom_aligned_msgs.emplace_back(odom_m, acc_gyro);
 
-                prev_odom_t = odom_t;
-                prev_odom_pose = odom_pose;
-                if (odom_msg.header.stamp >= odom_end_t) {
-                    break;
-                }
+            prev_odom_t = odom_t;
+            prev_odom_pose = odom_pose;
+            if (odom_msg.header.stamp >= odom_end_t) {
+                break;
             }
         }
 

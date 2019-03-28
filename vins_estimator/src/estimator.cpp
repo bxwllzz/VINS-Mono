@@ -369,7 +369,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     {
         // initialize VIO
         if (frame_count < WINDOW_SIZE) {
-            ROS_INFO("Waiting for enough image frames to initialization (%d/%d)", frame_count, WINDOW_SIZE);
+            ROS_DEBUG("Waiting for enough image frames to initialization (%d/%d)", frame_count, WINDOW_SIZE);
         } else {
             bool result = false;
             if( ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1) {
