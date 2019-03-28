@@ -1429,9 +1429,18 @@ void Estimator::optimization()
             if (pre_integrations[1]->sum_dt < 10.0)
             {
                 IMUFactor* imu_factor = new IMUFactor(pre_integrations[1]);
-                ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(imu_factor, NULL,
-                                                                           vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1], para_SpeedBias[1]},
-                                                                           vector<int>{0, 1});
+                ResidualBlockInfo *residual_block_info =
+                        new ResidualBlockInfo(imu_factor, NULL,
+                                              vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1], para_SpeedBias[1]},
+                                              vector<int>{0, 1});
+                marginalization_info->addResidualBlockInfo(residual_block_info);
+            }
+            if (!is_inside_periods({Headers[0].stamp.toSec(), Headers[1].stamp.toSec()}, wheel_slip_periods)) {
+                BaseOdomFactor *base_odom_factor = new BaseOdomFactor(base_integrations[1]);
+                ResidualBlockInfo *residual_block_info =
+                        new ResidualBlockInfo(base_odom_factor, NULL,
+                                              vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1]},
+                                              vector<int>{0, 1});
                 marginalization_info->addResidualBlockInfo(residual_block_info);
             }
         }
