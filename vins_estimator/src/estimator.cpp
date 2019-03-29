@@ -1164,7 +1164,7 @@ void Estimator::optimization()
                 }
             }
             if (!oss.str().empty())
-                ROS_WARN("Igonre wheelodom %s", oss.str().c_str());
+                ROS_DEBUG("Igonre wheelodom %s", oss.str().c_str());
         }
         if (USE_ODOM == 2 || USE_ODOM == 3) {
             ostringstream oss;
@@ -1199,7 +1199,7 @@ void Estimator::optimization()
                 oss << begin << "-" << end << " ";
             }
             if (begin > 0 || end < WINDOW_SIZE) {
-                ROS_WARN_STREAM("Long factor: " << oss.str());
+                ROS_DEBUG_STREAM("Long factor: " << oss.str());
             }
         }
     }
