@@ -99,7 +99,11 @@ void Estimator::clearState()
     wheel_imu_predict.reset();
     wheel_slip_periods.clear();
 
-//    wheel_odom_niose_analyser.reset();
+    status.clear();
+    history_index.clear();
+    history_status.clear();
+    prev_position = {0, 0, 0};
+    total_distance = 0;
 }
 
 void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
@@ -309,22 +313,29 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     status.emplace_back("solver_flag", solver_flag == NON_LINEAR ? 1 : 0);
 
+    Affine3d T_origin_o;
+    Vector3d vel_o;
     if (solver_flag == INITIAL) {
-        status_log_p("base", wheel_imu_odom.delta_p);
-        status_log_ypr("base", wheel_imu_odom.delta_q);
-        Vector3d vel(0, 0, 0);
-        vel.head<2>() = wheel_imu_odom.measurements.back().velocity.first;
-        status_log_p("base_vel", vel);
+        T_origin_o = wheel_imu_odom.transform();
+        vel_o.head<2>() = wheel_imu_odom.measurements.back().velocity.first;
+        vel_o[2] = 0;
     } else {
         Affine3d T_b_o = Translation3d(tio) * rio;
         Vector3d ypr_o_b = Utility::R2ypr(rio.inverse());
         Affine3d T_worldbase_w = Translation3d(T_b_o.inverse().translation()) * Utility::ypr2R(Vector3d(ypr_o_b[0], 0, 0));
         Affine3d T_worldorigin_worldbase = Translation3d(base_integration_before_init.delta_p) * base_integration_before_init.delta_q;
         Affine3d T_w_b = Translation3d(Ps[frame_count]) * Rs[frame_count];
-        status_log_p("base", T_worldorigin_worldbase * T_worldbase_w * T_w_b * T_b_o);
-        status_log_ypr("base", T_worldorigin_worldbase * T_worldbase_w * T_w_b * T_b_o);
-        status_log_p("base_vel", (T_w_b * T_b_o).linear().inverse() * Vs[frame_count]);
+        T_origin_o = T_worldorigin_worldbase * T_worldbase_w * T_w_b * T_b_o;
+        vel_o = (T_w_b * T_b_o).rotation().inverse() * Vs[frame_count];
     }
+    status_log_p("base", T_origin_o);
+    status_log_ypr("base", T_origin_o);
+    status_log_p("base_vel", vel_o);
+
+    total_distance += (T_origin_o.translation() - prev_position).norm();
+    prev_position = T_origin_o.translation();
+    status.emplace_back("total_distance", total_distance);
+
     status_log_p("bg", Bgs[frame_count]);
     status_log_p("ba", Bas[frame_count]);
     status.emplace_back("td", td);
@@ -423,6 +434,35 @@ bool Estimator::initialStructure()
 
     if (INIT_USE_ODOM == 1) {
         ROS_INFO("Initialize estimator using wheelodom+imu");
+
+        // find previous frame which contians enough correspondance and parallex with newest frame
+        bool enough_parallax = false;
+        for (int i = 0; i < WINDOW_SIZE; i++)
+        {
+            vector<pair<Vector3d, Vector3d>> corres;
+            corres = f_manager.getCorresponding(i, WINDOW_SIZE);
+            if (corres.size() > 20)
+            {
+                double sum_parallax = 0;
+                double average_parallax;
+                for (int j = 0; j < int(corres.size()); j++) {
+                    Vector2d pts_0(corres[j].first(0), corres[j].first(1));
+                    Vector2d pts_1(corres[j].second(0), corres[j].second(1));
+                    double parallax = (pts_0 - pts_1).norm();
+                    sum_parallax = sum_parallax + parallax;
+
+                }
+                average_parallax = 1.0 * sum_parallax / int(corres.size());
+                if(average_parallax * 460 > 30) {
+                    enough_parallax = true;
+                }
+            }
+        }
+        if (!enough_parallax) {
+            ROS_INFO("Not enough features or parallax; Move device around");
+            return false;
+        }
+
         if (wheelOdomInitialAlign())
             return true;
         else

@@ -89,6 +89,8 @@ public:
     std::map<string, std::vector<double>> history_status;
     void log_status();
     void save_history(string path);
+    Eigen::Vector3d prev_position = {0, 0, 0};
+    double total_distance = 0;
 
     SolverFlag solver_flag;
     MarginalizationFlag  marginalization_flag;
