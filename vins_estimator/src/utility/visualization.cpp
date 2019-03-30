@@ -9,14 +9,12 @@ using namespace ros;
 using namespace Eigen;
 ros::Publisher pub_odometry, pub_latest_odometry;
 ros::Publisher pub_path, pub_relo_path;
-ros::Publisher pub_vio_base_path, pub_wheel_path, pub_wheel_imu_path, pub_wheel_imu_path3D;
 ros::Publisher pub_point_cloud, pub_margin_cloud;
 ros::Publisher pub_key_poses;
 ros::Publisher pub_relo_relative_pose;
 ros::Publisher pub_camera_pose;
 ros::Publisher pub_camera_pose_visual;
 nav_msgs::Path path, relo_path;
-nav_msgs::Path vio_base_path, wheel_path, wheel_imu_path, wheel_imu_path3D;
 
 ros::Publisher pub_keyframe_pose;
 ros::Publisher pub_keyframe_point;
@@ -36,68 +34,218 @@ CameraPoseVisualization keyframebasevisual(0.0, 0.0, 1.0, 1.0);
 static double sum_of_path = 0;
 static Vector3d last_path(0.0, 0.0, 0.0);
 
-static geometry_msgs::Vector3 Vector3d2Vector3(const Vector3d& in) {
-    geometry_msgs::Vector3 out;
-    out.x = in.x();
-    out.y = in.y();
-    out.z = in.z();
-    return out;
+using namespace Eigen2ROS;
+
+
+PathTFPublisher::PathTFPublisher(ros::NodeHandle &nh) {
+    sub_pose_graph_path_ = nh.subscribe<nav_msgs::Path>("/pose_graph/pose_graph_path", 1000,
+                                 std::bind(&PathTFPublisher::on_pose_graph_path, this, std::placeholders::_1));
+
+    pub_path_origin_o_wheel_ = nh.advertise<nav_msgs::Path>("wheel_path", 1000);
+    pub_path_origin_o_wheelimu_ = nh.advertise<nav_msgs::Path>("wheel_imu_path", 1000);
+    pub_path_origin_o_wheelimu3D_ = nh.advertise<nav_msgs::Path>("wheel_imu_path3D", 1000);
+    pub_path_origin_o_vio_ = nh.advertise<nav_msgs::Path>("vio_base_path", 1000);
+    pub_path_origin_o_loop_ = nh.advertise<nav_msgs::Path>("base_loop_path", 1000);
 }
 
-static geometry_msgs::Point Vector3d2Point(const Vector3d& in) {
-    geometry_msgs::Point out;
-    out.x = in.x();
-    out.y = in.y();
-    out.z = in.z();
-    return out;
+void PathTFPublisher::reset() {
+    Affine3d I = Translation3d(0, 0, 0) * Matrix3d::Identity();
+    T_b_c = I;
+    T_b_o = I;
+    T_origin_worldbase = I;
+    T_worldbase_w = I;
+    T_w_b = I;
+    T_origin_o_wheel = I;
+    T_origin_o_wheelimu = I;
+    T_origin_o_wheelimu3D = I;
+    T_origin_o_vio = I;
+    T_origin_o_loop = I;
+
+    header_ = {};
+    path_origin_o_wheel_ = {};
+    path_origin_o_wheelimu_ = {};
+    path_origin_o_wheelimu3D_ = {};
+    path_origin_o_vio_ = {};
+    path_origin_o_loop_ = {};
 }
 
-static geometry_msgs::Quaternion Q2wxyz(const Quaterniond& in) {
-    geometry_msgs::Quaternion out;
-    out.w = in.w();
-    out.x = in.x();
-    out.y = in.y();
-    out.z = in.z();
-    return out;
+void PathTFPublisher::on_pose_graph_path(const nav_msgs::Path::ConstPtr &msg) {
+    /* rebuild path_origin_o_loop_ */
+    path_origin_o_loop_.poses.clear();
+    // insert path point from wheel_odom before pose_graph_path
+    for (geometry_msgs::PoseStamped pose_stamped : path_origin_o_vio_.poses) {
+        if (pose_stamped.header.stamp >= msg->poses.begin()->header.stamp) {
+            break;
+        }
+        T_origin_o_loop = Pose2Affine3d(pose_stamped.pose);
+        pose_stamped.header.frame_id = "world_origin_loop";
+        path_origin_o_loop_.poses.emplace_back(pose_stamped);
+    }
+    // insert pose_graph_path point
+    for (geometry_msgs::PoseStamped pose_stamped : msg->poses) {
+        Affine3d T_w_b_loop = Pose2Affine3d(pose_stamped.pose);
+        T_origin_o_loop = T_origin_worldbase * T_worldbase_w * T_w_b_loop * T_b_o;
+        pose_stamped.header.frame_id = "world_origin_loop";
+        pose_stamped.pose = Affine3d2Pose(T_origin_o_loop);
+        path_origin_o_loop_.poses.emplace_back(pose_stamped);
+    }
+    // insert path point from vio after pose_graph_path
+    if (path_origin_o_loop_.poses.empty()) {
+        for (geometry_msgs::PoseStamped pose_stamped : path_origin_o_vio_.poses) {
+            pose_stamped.header.frame_id = "world_origin_loop";
+            path_origin_o_loop_.header = pose_stamped.header;
+            path_origin_o_loop_.header.frame_id = "world_origin_loop";
+            path_origin_o_loop_.poses.emplace_back(pose_stamped);
+        }
+    } else {
+        Affine3d T_origin_oi_loop = Pose2Affine3d(path_origin_o_loop_.poses.back().pose);
+        bool found_T_origin_oi_vio = false;
+        Affine3d T_origin_oi_vio;
+        for (geometry_msgs::PoseStamped pose_stamped : path_origin_o_vio_.poses) {
+            if (pose_stamped.header.stamp <= path_origin_o_loop_.poses.back().header.stamp) {
+                found_T_origin_oi_vio = true;
+                T_origin_oi_vio = Pose2Affine3d(pose_stamped.pose);
+            } else {
+                if (found_T_origin_oi_vio) {
+                    Affine3d T_origin_oj_vio = Pose2Affine3d(pose_stamped.pose);
+                    Affine3d T_origin_oj_loop = T_origin_oi_loop * T_origin_oi_vio.inverse() * T_origin_oj_vio;
+                    T_origin_o_loop = T_origin_oj_loop;
+                    pose_stamped.header.frame_id = "world_origin_loop";
+                    pose_stamped.pose = Affine3d2Pose(T_origin_o_loop);
+                    path_origin_o_loop_.poses.emplace_back(pose_stamped);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_o_loop.inverse()), header_.stamp, "base_footprint",
+                                 "world_origin_loop"));
+    pub_path_origin_o_loop_.publish(path_origin_o_loop_);
 }
 
-static geometry_msgs::Quaternion R2wxyz(const Matrix3d& in) {
-    Quaterniond q(in);
-    geometry_msgs::Quaternion out;
-    out.w = q.w();
-    out.x = q.x();
-    out.y = q.y();
-    out.z = q.z();
-    return out;
+void PathTFPublisher::on_estimator_update(const Estimator &estimator) {
+    /* Update status */
+    header_ = estimator.Headers[estimator.frame_count];
+    T_b_c = Translation3d(estimator.tic[0]) * estimator.ric[0];
+    T_b_o = Translation3d(estimator.tio) * estimator.rio;
+    Vector3d p_o_b = -estimator.rio.inverse() * estimator.tio;
+    Vector3d ypr_o_b = Utility::R2ypr(estimator.rio.inverse());
+    ypr_o_b[1] = 0;
+    ypr_o_b[2] = 0;
+    T_worldbase_w = Translation3d(p_o_b) * Utility::ypr2R(ypr_o_b);
+    T_origin_worldbase = Translation3d(estimator.base_integration_before_init.delta_p)
+                         * estimator.base_integration_before_init.delta_q;
+    if (estimator.solver_flag == Estimator::SolverFlag::INITIAL) {
+        Affine3d T_origin_o = Translation3d(estimator.wheel_imu_odom.delta_p)
+                              * estimator.wheel_imu_odom.delta_q;
+        Affine3d T_worldbase_o = T_origin_worldbase.inverse() * T_origin_o;
+        T_w_b = T_worldbase_w.inverse() * T_worldbase_o * T_b_o.inverse();
+    } else {
+        T_w_b = Translation3d(estimator.Ps[WINDOW_SIZE])
+                * estimator.Rs[WINDOW_SIZE];
+    }
+    T_origin_o_wheel = estimator.wheel_only_odom.transform();
+    T_origin_o_wheelimu = estimator.wheel_imu_odom.transform();
+    T_origin_o_wheelimu3D = estimator.wheel_imu_odom3D.transform();
+    T_origin_o_vio = T_origin_worldbase * T_worldbase_w * T_w_b * T_b_o;
+
+    geometry_msgs::PoseStamped pose_stamped;
+    pose_stamped.header = header_;
+    // wheel only odometry path
+    pose_stamped.header.frame_id = "wheel_odom";
+    pose_stamped.pose = Affine3d2Pose(T_origin_o_wheel);
+    path_origin_o_wheel_.header = header_;
+    path_origin_o_wheel_.header.frame_id = "wheel_odom";
+    path_origin_o_wheel_.poses.emplace_back(pose_stamped);
+    // wheel-imu-fusion odometry path
+    pose_stamped.header.frame_id = "wheel_imu_odom";
+    pose_stamped.pose = Affine3d2Pose(T_origin_o_wheelimu);
+    path_origin_o_wheelimu_.header = header_;
+    path_origin_o_wheelimu_.header.frame_id = "wheel_imu_odom";
+    path_origin_o_wheelimu_.poses.emplace_back(pose_stamped);
+    // wheel-imu-fusion odometry 3D path
+    pose_stamped.header.frame_id = "wheel_imu_odom3D";
+    pose_stamped.pose = Affine3d2Pose(T_origin_o_wheelimu3D);
+    path_origin_o_wheelimu3D_.header = header_;
+    path_origin_o_wheelimu3D_.header.frame_id = "wheel_imu_odom3D";
+    path_origin_o_wheelimu3D_.poses.emplace_back(pose_stamped);
+    // vio path
+    pose_stamped.header.frame_id = "world_origin";
+    pose_stamped.pose = Affine3d2Pose(T_origin_o_vio);
+    path_origin_o_vio_.header = header_;
+    path_origin_o_vio_.header.frame_id = "world_origin";
+    path_origin_o_vio_.poses.emplace_back(pose_stamped);
+    // loop path
+    if (path_origin_o_loop_.poses.empty()) {
+        for (geometry_msgs::PoseStamped pose_stamped : path_origin_o_vio_.poses) {
+            T_origin_o_loop = Pose2Affine3d(pose_stamped.pose);
+            pose_stamped.header.frame_id = "world_origin_loop";
+            path_origin_o_loop_.header = pose_stamped.header;
+            path_origin_o_loop_.header.frame_id = "world_origin_loop";
+            path_origin_o_loop_.poses.emplace_back(pose_stamped);
+        }
+    } else {
+        Affine3d T_origin_oi_loop = Pose2Affine3d(path_origin_o_loop_.poses.back().pose);
+        bool found_T_origin_oi_vio = false;
+        Affine3d T_origin_oi_vio;
+        for (geometry_msgs::PoseStamped pose_stamped : path_origin_o_vio_.poses) {
+            if (pose_stamped.header.stamp <= path_origin_o_loop_.poses.back().header.stamp) {
+                found_T_origin_oi_vio = true;
+                T_origin_oi_vio = Pose2Affine3d(pose_stamped.pose);
+            } else {
+                if (found_T_origin_oi_vio) {
+                    Affine3d T_origin_oj_vio = Pose2Affine3d(pose_stamped.pose);
+                    Affine3d T_origin_oj_loop = T_origin_oi_loop * T_origin_oi_vio.inverse() * T_origin_oj_vio;
+                    T_origin_o_loop = T_origin_oj_loop;
+                    pose_stamped.header.frame_id = "world_origin_loop";
+                    pose_stamped.pose = Affine3d2Pose(T_origin_o_loop);
+                    path_origin_o_loop_.header = pose_stamped.header;
+                    path_origin_o_loop_.header.frame_id = "world_origin_loop";
+                    path_origin_o_loop_.poses.emplace_back(pose_stamped);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    publish();
 }
 
-static geometry_msgs::Pose Affine3d2Pose(const Affine3d& in) {
-    geometry_msgs::Pose out;
-    out.position = Vector3d2Point(in.translation());
-    out.orientation = Q2wxyz(Quaterniond(in.rotation()));
-    return out;
-}
+void PathTFPublisher::publish() {
+    /* Publish transform */
+    // fixed
+    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_c), header_.stamp, "body", "camera"));
+    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_o), header_.stamp, "body", "base_footprint"));
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_worldbase_w.inverse()), header_.stamp, "world", "world_base"));
+    // dynamic
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_worldbase.inverse()), header_.stamp, "world_base",
+                                 "world_origin"));
+    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header_.stamp, "world", "body"));
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_o_wheel.inverse()), header_.stamp, "base_footprint",
+                                 "wheel_odom"));
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_o_wheelimu.inverse()), header_.stamp, "base_footprint",
+                                 "wheel_imu_odom"));
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_o_wheelimu3D.inverse()), header_.stamp, "base_footprint",
+                                 "wheel_imu_odom3D"));
+    br_.sendTransform(
+            tf::StampedTransform(Affine3d2Transform(T_origin_o_loop.inverse()), header_.stamp, "base_footprint",
+                                 "world_origin_loop"));
 
-static geometry_msgs::Pose Rp2Pose(const Matrix3d& R, const Vector3d& p) {
-    geometry_msgs::Pose out;
-    out.position = Vector3d2Point(p);
-    out.orientation = Q2wxyz(Quaterniond(R));
-    return out;
-}
-static geometry_msgs::Pose Rp2Pose(const Quaterniond& q, const Vector3d& p) {
-    geometry_msgs::Pose out;
-    out.position = Vector3d2Point(p);
-    out.orientation = Q2wxyz(q);
-    return out;
-}
-
-static tf::Transform Affine3d2Transform(const Affine3d &T) {
-    Matrix3d M = T.rotation();
-    Vector3d p = T.translation();
-    return tf::Transform(tf::Matrix3x3(M(0, 0), M(0, 1), M(0, 2),
-                                       M(1, 0), M(1, 1), M(1, 2),
-                                       M(2, 0), M(2, 1), M(2, 2)),
-                         tf::Vector3(p[0], p[1], p[2]));
+    /* Publish path */
+    pub_path_origin_o_wheel_.publish(path_origin_o_wheel_);
+    pub_path_origin_o_wheelimu_.publish(path_origin_o_wheelimu_);
+    pub_path_origin_o_wheelimu3D_.publish(path_origin_o_wheelimu3D_);
+    pub_path_origin_o_vio_.publish(path_origin_o_vio_);
+    pub_path_origin_o_loop_.publish(path_origin_o_loop_);
 }
 
 void registerPub(ros::NodeHandle &n)
@@ -105,10 +253,6 @@ void registerPub(ros::NodeHandle &n)
     pub_latest_odometry = n.advertise<nav_msgs::Odometry>("imu_propagate", 1000);
     pub_path = n.advertise<nav_msgs::Path>("path", 1000);
     pub_relo_path = n.advertise<nav_msgs::Path>("relocalization_path", 1000);
-    pub_vio_base_path = n.advertise<nav_msgs::Path>("vio_base_path", 1000);
-    pub_wheel_path = n.advertise<nav_msgs::Path>("wheel_path", 1000);
-    pub_wheel_imu_path = n.advertise<nav_msgs::Path>("wheel_imu_path", 1000);
-    pub_wheel_imu_path3D = n.advertise<nav_msgs::Path>("wheel_imu_path3D", 1000);
     pub_odometry = n.advertise<nav_msgs::Odometry>("odometry", 1000);
     pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud", 1000);
     pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("history_cloud", 1000);
@@ -195,54 +339,7 @@ void printStatistics(const Estimator &estimator, double t)
 void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
 {
 
-    //debug
-//    try {
-//        vector<double> window_info = {
-//                estimator.window_info.at("dt"),
-//                estimator.window_info.at("dp"),
-//                estimator.window_info.at("err_p"),
-//                estimator.window_info.at("err_v"),
-//                estimator.window_info.at("scale"),
-//                estimator.window_info.at("g"),
-//                estimator.window_info.at("gx"),
-//                estimator.window_info.at("gy"),
-//                estimator.window_info.at("gz"),
-//        };
-//        std_msgs::Float64MultiArray msg_window_info;
-//        msg_window_info.data = window_info;
-//        pub_window_info.publish(msg_window_info);
-//    } catch (std::out_of_range err) {
-//
-//    }
-
     geometry_msgs::PoseStamped pose_stamped;
-
-    // publish wheel only odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_odom";
-    pose_stamped.pose = Affine3d2Pose(estimator.wheel_only_odom.transform());
-    wheel_path.header = header;
-    wheel_path.header.frame_id = "wheel_odom";
-    wheel_path.poses.emplace_back(pose_stamped);
-    pub_wheel_path.publish(wheel_path);
-
-    // publish wheel-imu-fusion odometry path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_imu_odom";
-    pose_stamped.pose = Affine3d2Pose(estimator.wheel_imu_odom.transform());
-    wheel_imu_path.header = header;
-    wheel_imu_path.header.frame_id = "wheel_imu_odom";
-    wheel_imu_path.poses.emplace_back(pose_stamped);
-    pub_wheel_imu_path.publish(wheel_imu_path);
-
-    // publish wheel-imu-fusion odometry 3D path
-    pose_stamped.header = header;
-    pose_stamped.header.frame_id = "wheel_imu_odom3D";
-    pose_stamped.pose = Affine3d2Pose(estimator.wheel_imu_odom3D.transform());
-    wheel_imu_path3D.header = header;
-    wheel_imu_path3D.header.frame_id = "wheel_imu_odom3D";
-    wheel_imu_path3D.poses.emplace_back(pose_stamped);
-    pub_wheel_imu_path3D.publish(wheel_imu_path3D);
 
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
     {
@@ -263,17 +360,6 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         path.poses.push_back(pose_stamped);
         pub_path.publish(path);
 
-        // path of base_footprint
-        pose_stamped.header = header;
-        pose_stamped.header.frame_id = "world";
-        Affine3d T_world_imu = Translation3d(estimator.Ps[WINDOW_SIZE]) * estimator.Rs[WINDOW_SIZE];
-        Affine3d T_imu_base = Translation3d(estimator.tio) * estimator.rio;
-        pose_stamped.pose = Affine3d2Pose(T_world_imu * T_imu_base);
-        vio_base_path.header = header;
-        vio_base_path.header.frame_id = "world";
-        vio_base_path.poses.push_back(pose_stamped);
-        pub_vio_base_path.publish(vio_base_path);
-
         Vector3d correct_t;
         Vector3d correct_v;
         Quaterniond correct_q;
@@ -287,55 +373,13 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         relo_path.poses.push_back(pose_stamped);
         pub_relo_path.publish(relo_path);
 
+
         // debug pub bias imu
         sensor_msgs::Imu msg;
         msg.header = header;
         msg.angular_velocity = Vector3d2Vector3(estimator.Bgs[WINDOW_SIZE]);
         msg.linear_acceleration = Vector3d2Vector3(estimator.Bas[WINDOW_SIZE]);
         pub_bias.publish(msg);
-        // debug pub lastest keyframe translation
-//        nav_msgs::Odometry msg_imu_predict;
-//        msg_imu_predict.header = header;
-//        msg_imu_predict.pose.pose.position.x = estimator.imu_predict_P.x();
-//        msg_imu_predict.pose.pose.position.y = estimator.imu_predict_P.y();
-//        msg_imu_predict.pose.pose.position.z = estimator.imu_predict_P.z();
-//        pub_imu_predict.publish(msg_imu_predict);
-//        nav_msgs::Odometry msg_optimized;
-//        msg_optimized.header = header;
-//        msg_optimized.pose.pose.position.x = estimator.optimized_P.x();
-//        msg_optimized.pose.pose.position.y = estimator.optimized_P.y();
-//        msg_optimized.pose.pose.position.z = estimator.optimized_P.z();
-//        pub_optimized.publish(msg_optimized);
-//        nav_msgs::Odometry msg_wheel_predict;
-//        msg_wheel_predict.header = header;
-//        msg_wheel_predict.pose.pose.position.x = estimator.wheel_predict_P.x();
-//        msg_wheel_predict.pose.pose.position.y = estimator.wheel_predict_P.y();
-//        pub_wheel_predict.publish(msg_wheel_predict);
-//        nav_msgs::Odometry msg_wheel_imu_predict;
-//        msg_wheel_imu_predict.header = header;
-//        msg_wheel_imu_predict.pose.pose.position.x = estimator.wheel_imu_predict_P.x();
-//        msg_wheel_imu_predict.pose.pose.position.y = estimator.wheel_imu_predict_P.y();
-//        msg_wheel_imu_predict.pose.pose.position.z = estimator.wheel_imu_predict_P.z();
-//        pub_wheel_imu_predict.publish(msg_wheel_imu_predict);
-
-
-        // write result to file
-//        ofstream foutC(VINS_RESULT_PATH, ios::app);
-//        foutC.setf(ios::fixed, ios::floatfield);
-//        foutC.precision(0);
-//        foutC << header.stamp.toSec() * 1e9 << ",";
-//        foutC.precision(5);
-//        foutC << estimator.Ps[WINDOW_SIZE].x() << ","
-//              << estimator.Ps[WINDOW_SIZE].y() << ","
-//              << estimator.Ps[WINDOW_SIZE].z() << ","
-//              << tmp_Q.w() << ","
-//              << tmp_Q.x() << ","
-//              << tmp_Q.y() << ","
-//              << tmp_Q.z() << ","
-//              << estimator.Vs[WINDOW_SIZE].x() << ","
-//              << estimator.Vs[WINDOW_SIZE].y() << ","
-//              << estimator.Vs[WINDOW_SIZE].z() << "," << endl;
-//        foutC.close();
     }
 }
 
@@ -498,52 +542,6 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
 
 void pubTF(const Estimator &estimator, const std_msgs::Header &header)
 {
-    static tf::TransformBroadcaster br;
-
-    // fixed
-    Affine3d T_b_c = Translation3d(TIC[0]) * RIC[0];
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_c), header.stamp, "body", "camera"));
-    Affine3d T_b_o = Translation3d(TIO) * RIO;
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_o), header.stamp, "body", "base_footprint"));
-    Vector3d p_o_b = -RIO.inverse() * TIO;
-    Vector3d ypr_o_b = Utility::R2ypr(RIO.inverse());
-    ypr_o_b[1] = 0; ypr_o_b[2] = 0;
-    Affine3d T_worldbase_w = Translation3d(p_o_b) * Utility::ypr2R(ypr_o_b);
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_worldbase_w.inverse()), header.stamp, "world", "world_base"));
-
-    // shared
-    Affine3d T_origin_worldbase = Translation3d(estimator.base_integration_before_init.delta_p)
-                                  * estimator.base_integration_before_init.delta_q;
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_origin_worldbase.inverse()), header.stamp, "world_base", "world_origin"));
-
-    if( estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
-        Affine3d T_w_b = Translation3d(estimator.Ps[WINDOW_SIZE])
-                         * estimator.Rs[WINDOW_SIZE];
-        br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header.stamp, "world", "body"));
-    } else {
-        Affine3d T_origin_o = Translation3d(estimator.wheel_imu_odom.delta_p)
-                              * estimator.wheel_imu_odom.delta_q;
-
-        Affine3d T_worldbase_o = T_origin_worldbase.inverse() * T_origin_o;
-        Affine3d T_w_b = T_worldbase_w.inverse() * T_worldbase_o * T_b_o.inverse();
-
-        br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header.stamp, "world", "body"));
-    }
-
-    // broadcast base_footprint -> wheel_odom
-    Affine3d T_wheelodom_base = Translation3d(estimator.wheel_only_odom.delta_p)
-                                * estimator.wheel_only_odom.delta_q;
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelodom_base.inverse()), header.stamp, "base_footprint", "wheel_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom
-    Affine3d T_wheelimuodom_base = Translation3d(estimator.wheel_imu_odom.delta_p)
-                                   * estimator.wheel_imu_odom.delta_q;
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelimuodom_base.inverse()), header.stamp, "base_footprint", "wheel_imu_odom"));
-
-    // broadcast base_footprint -> wheel_imu_odom3D
-    Affine3d T_wheelimuodom3D_base = Translation3d(estimator.wheel_imu_odom3D.delta_p)
-                                     * estimator.wheel_imu_odom3D.delta_q;
-    br.sendTransform(tf::StampedTransform(Affine3d2Transform(T_wheelimuodom3D_base.inverse()), header.stamp, "base_footprint", "wheel_imu_odom3D"));
 
     nav_msgs::Odometry odometry;
     odometry.header = header;

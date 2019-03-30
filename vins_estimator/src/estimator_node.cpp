@@ -257,6 +257,51 @@ public:
     }
 };
 
+static void interplote(const nav_msgs::Path &path, geometry_msgs::PoseStamped &result) {
+    if (path.poses.empty())
+        throw std::out_of_range("path is empty");
+    // find first >=
+    auto it_behind = std::lower_bound(path.poses.begin(), path.poses.end(), result,
+                                      [](const geometry_msgs::PoseStamped &a,
+                                         const geometry_msgs::PoseStamped &b) -> bool {
+                                          return a.header.stamp < b.header.stamp;
+                                      });
+    if (it_behind == path.poses.end()) {
+        result.header.frame_id = path.poses.back().header.frame_id;
+        result.header.seq = path.poses.back().header.seq;
+        result.pose = path.poses.back().pose;
+        return;
+    }
+    if (it_behind->header.stamp == result.header.stamp) {
+        result = *it_behind;
+        return;
+    }
+    if (it_behind == path.poses.begin()) {
+        result.header.frame_id = path.poses.front().header.frame_id;
+        result.header.seq = path.poses.front().header.seq;
+        result.pose = path.poses.front().pose;
+        return;
+    }
+    auto it_before = std::prev(it_behind);
+
+    using namespace Eigen2ROS;
+    double t1 = it_before->header.stamp.toSec();
+    double t2 = result.header.stamp.toSec();
+    double t3 = it_behind->header.stamp.toSec();
+    double w1 = (t3 - t2) / (t3 - t1);
+    double w3 = 1 - w1;
+    Affine3d T_w_1 = Pose2Affine3d(it_before->pose);
+    Affine3d T_w_3 = Pose2Affine3d(it_behind->pose);
+    AngleAxisd R_1_3(T_w_1.rotation().inverse() * T_w_3.rotation());
+    AngleAxisd R_1_2(w3 * R_1_3.angle(), R_1_3.axis());
+    Matrix3d R_w_1 = T_w_1.rotation() * R_1_2;
+    Affine3d T_w_2 = Translation3d(w1 * T_w_1.translation() + w3 * T_w_3.translation())
+                     * R_w_1;
+    result.header.frame_id = it_before->header.frame_id;
+    result.header.seq = it_before->header.seq;
+    result.pose = Affine3d2Pose(T_w_2);
+}
+
 class DataPreProcess {
 private:
     bool first_feature = true;
@@ -282,8 +327,10 @@ private:
     ros::Subscriber sub_relo_points;
     std::thread process_thread;
 
+    PathTFPublisher path_tf_publisher;
+
 public:
-    explicit DataPreProcess(ros::NodeHandle& _nh) : nh(_nh) {
+    explicit DataPreProcess(ros::NodeHandle& _nh) : nh(_nh), path_tf_publisher(nh) {
         estimator.setParameter();
 
         sub_imu = nh.subscribe(IMU_TOPIC, 2000, &DataPreProcess::on_imu, this, ros::TransportHints().tcpNoDelay());
@@ -316,6 +363,8 @@ public:
         relo_buf.clear();
         estimator.clearState();
         estimator.setParameter();
+
+        path_tf_publisher.reset();
     }
 
     void on_imu(const sensor_msgs::ImuConstPtr& imu_msg) {
@@ -525,13 +574,59 @@ public:
 
     void process() {
         ros::Time last_measure;
+        ros::Time last_publish;
         do {
+            if (!last_measure.isZero() && ros::Time::now() - last_measure >= ros::Duration(1)) {
+                if (!estimator.history_status.empty()) {
+
+                    auto func = [&](string key) {
+                        if (std::find(estimator.history_index.begin(),
+                                      estimator.history_index.end(), key) == estimator.history_index.end()) {
+                            estimator.history_index.emplace_back(key);
+                        }
+                        estimator.history_status[key] = vector<double>();
+                    };
+                    func("loop_x");
+                    func("loop_y");
+                    func("loop_z");
+                    func("loop_yaw");
+                    func("loop_pitch");
+                    func("loop_roll");
+
+                    for (double t : estimator.history_status.at("timestamp")) {
+                        geometry_msgs::PoseStamped pose_stamped;
+                        pose_stamped.header.stamp = ros::Time(t);
+                        interplote(path_tf_publisher.path_origin_o_loop_, pose_stamped);
+                        using namespace Eigen2ROS;
+                        Affine3d T_origin_o_loop = Pose2Affine3d(pose_stamped.pose);
+                        estimator.history_status["loop_x"].emplace_back(T_origin_o_loop.translation().x());
+                        estimator.history_status["loop_y"].emplace_back(T_origin_o_loop.translation().y());
+                        estimator.history_status["loop_z"].emplace_back(T_origin_o_loop.translation().z());
+                        Vector3d ypr = Utility::R2ypr(T_origin_o_loop.rotation());
+                        estimator.history_status["loop_yaw"].emplace_back(ypr[0]);
+                        estimator.history_status["loop_pitch"].emplace_back(ypr[1]);
+                        estimator.history_status["loop_roll"].emplace_back(ypr[2]);
+                    }
+                }
+                estimator.save_history("/tmp/viwns_result_no_loop.csv");
+                last_measure = {};
+            }
+            if (!last_publish.isZero() && ros::Time::now() - last_publish >= ros::Duration(1)) {
+                path_tf_publisher.on_estimator_update(estimator);
+
+                std_msgs::Header header = estimator.Headers[estimator.frame_count];
+                header.frame_id = "world";
+                pubOdometry(estimator, header);
+                pubKeyPoses(estimator, header);
+                pubCameraPose(estimator, header);
+                pubPointCloud(estimator, header);
+                pubTF(estimator, header);
+                pubKeyframe(estimator);
+                last_publish = ros::Time::now();
+            }
+
             unique_lock<mutex> lk(m_buf);
             if (cv.wait_for(lk, chrono::milliseconds(100)) == std::cv_status::timeout) {
-                if (!last_measure.isZero() && ros::Time::now() - last_measure >= ros::Duration(1)) {
-                    estimator.save_history("/tmp/viwns_result_no_loop.csv");
-                    last_measure = {};
-                }
                 continue;
             }
             Measurement measurement;
@@ -631,9 +726,11 @@ public:
 
                 double whole_t = t_s.toc();
                 printStatistics(estimator, whole_t);
+
+                path_tf_publisher.on_estimator_update(estimator);
+
                 std_msgs::Header header = img_msg->header;
                 header.frame_id = "world";
-
                 pubOdometry(estimator, header);
                 pubKeyPoses(estimator, header);
                 pubCameraPose(estimator, header);
@@ -642,6 +739,8 @@ public:
                 pubKeyframe(estimator);
                 if (relo_msg != nullptr)
                     pubRelocalization(estimator);
+
+                last_publish = ros::Time::now();
                 //ROS_ERROR("end: %f, at %f", img_msg->header.stamp.toSec(), ros::Time::now().toSec());
 
                 if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR) {

@@ -58,6 +58,7 @@ void Estimator::clearState()
         Bgs[i].setZero();
 
         pre_integrations[i].reset();
+        base_integrations[i].reset();
     }
 
     for (int i = 0; i < NUM_OF_CAM; i++)
@@ -84,7 +85,6 @@ void Estimator::clearState()
         delete last_marginalization_info;
 
     tmp_pre_integration.reset();
-    tmp_base_integration.reset();
     last_marginalization_info = nullptr;
     last_marginalization_parameter_blocks.clear();
 
@@ -96,6 +96,11 @@ void Estimator::clearState()
     drift_correct_r = Matrix3d::Identity();
     drift_correct_t = Vector3d::Zero();
 
+    base_integration_before_init = BaseOdometryIntegration3D();
+    wheel_only_odom = BaseOdometryIntegration3D();
+    wheel_imu_odom = BaseOdometryIntegration3D();
+    wheel_imu_odom3D = BaseOdometryIntegration3D();
+    tmp_base_integration.reset();
     wheel_imu_predict.reset();
     wheel_slip_periods.clear();
 
@@ -1137,7 +1142,8 @@ void Estimator::optimization()
         wheel_slip_periods.emplace_back(
                 Headers[WINDOW_SIZE-1].stamp.toSec(),
                 Headers[WINDOW_SIZE].stamp.toSec());
-        ROS_WARN_STREAM("Wheel slip! " << info);
+        if (USE_ODOM)
+            ROS_WARN_STREAM("Wheel slip! " << info);
         status.emplace_back("slip", 1);
     } else {
         status.emplace_back("slip", 0);

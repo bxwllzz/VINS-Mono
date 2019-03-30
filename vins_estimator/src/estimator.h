@@ -114,26 +114,10 @@ public:
     double td_bo;
     std::shared_ptr<BaseOdometryIntegration3D> base_integrations[WINDOW_SIZE + 1];
 
-    // debug
-//    Vector3d imu_predict_P = Vector3d::Zero();
-//    Matrix3d imu_predict_R = Matrix3d::Identity();
-//    Vector3d imu_predict_V = Vector3d::Zero();
-//    Vector3d optimized_P = Vector3d::Zero();
-//    Matrix3d optimized_R = Matrix3d::Identity();
-//    Vector3d optimized_V = Vector3d::Zero();
-//    Vector3d wheel_predict_P = Vector3d::Zero();
-//    Matrix3d wheel_predict_R = Matrix3d::Zero();
-//    double wheel_predict_dt = 0;
-//    Vector3d wheel_imu_P = Vector3d::Zero();
-//    Vector3d wheel_imu_V = Vector3d::Zero();
-//    Vector3d wheel_imu_predict_P = Vector3d::Zero();
-//    Vector3d wheel_imu_predict_V = Vector3d::Zero();
-
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
-    std::map<std::string, double> window_info;
     std::shared_ptr<IntegrationBase> pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;  // lastest acc and gyro
 
