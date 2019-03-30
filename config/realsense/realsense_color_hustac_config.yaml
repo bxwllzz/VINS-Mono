@@ -92,8 +92,8 @@ wheel_odom_scale: !!opencv-matrix
    data: [ 1.0027, 0,      0, 
            0,      0.9639, 0, 
            0,      0,      1 ]
-wheel_min_n: 0.005   # wheel odom mininum error stardard deviation (due to wheel encoder's disatema)
-wheel_n: 0.005        # wheel odom error stardard deviation per meter
+wheel_min_n: 0.01    # wheel odom mininum error stardard deviation (due to wheel encoder's disatema)
+wheel_n: 0.005       # wheel odom error stardard deviation per meter
 use_odom: 3          # 0: not use odom factor (as original VINS-Mono)
                      # 1: use only inter-frame odom factor
                      # 2: use only begin-end-frame odom factor
