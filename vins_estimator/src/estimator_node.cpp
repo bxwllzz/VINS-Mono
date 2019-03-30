@@ -612,7 +612,7 @@ public:
                 last_measure = {};
             }
             if (!last_publish.isZero() && ros::Time::now() - last_publish >= ros::Duration(1)) {
-                path_tf_publisher.on_estimator_update(estimator);
+                path_tf_publisher.publish();
 
                 std_msgs::Header header = estimator.Headers[estimator.frame_count];
                 header.frame_id = "world";
