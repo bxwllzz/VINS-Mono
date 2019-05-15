@@ -491,17 +491,21 @@ void base_imu_alignment_fixed_scale_g(const vector<pair<std::shared_ptr<Integrat
     int frame_count = pre_integrations.size();
     int n_state = frame_count * 3;
 
-    MatrixXd AA{n_state, n_state};              AA.setZero();
-    VectorXd Ab{n_state};                       Ab.setZero();
+    MatrixXd AA{n_state, n_state};
+    AA.setZero();
+    VectorXd Ab{n_state};
+    Ab.setZero();
 
     Matrix3d R_b0_bi = Matrix3d::Identity();
     for (int i = 0; i < frame_count - 2; i++) {
-        auto& frame_i = pre_integrations[i];
-        auto& frame_j = pre_integrations[i+1];
+        auto &frame_i = pre_integrations[i];
+        auto &frame_j = pre_integrations[i + 1];
         Matrix3d R_bi_bj = frame_j.first->delta_q.toRotationMatrix();
 
-        MatrixXd tmp_A(6, 6);  tmp_A.setZero();
-        VectorXd tmp_b(6);     tmp_b.setZero();
+        MatrixXd tmp_A(6, 6);
+        tmp_A.setZero();
+        VectorXd tmp_b(6);
+        tmp_b.setZero();
 
         double dt = frame_j.first->sum_dt;
 
@@ -521,7 +525,6 @@ void base_imu_alignment_fixed_scale_g(const vector<pair<std::shared_ptr<Integrat
 
         R_b0_bi = R_b0_bi * R_bi_bj;
     }
-
     AA = AA * 1000.0;
     Ab = Ab * 1000.0;
     x = AA.ldlt().solve(Ab);

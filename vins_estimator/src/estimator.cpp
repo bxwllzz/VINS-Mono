@@ -22,6 +22,7 @@
 #include <queue>
 #include <opencv2/core/eigen.hpp>
 
+#include "utility/ImuUtility.h"
 #include "estimator.h"
 
 Estimator::Estimator(): f_manager{Rs}
@@ -103,6 +104,7 @@ void Estimator::clearState()
     tmp_base_integration.reset();
     wheel_imu_predict.reset();
     wheel_slip_periods.clear();
+    slipping = false;
 
     status.clear();
     history_index.clear();
@@ -1096,34 +1098,68 @@ void Estimator::optimization()
         problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
     }
 
-    // check wheel slip
+    /* check wheel slip */
+
+    // linear alignment
     vector<pair<std::shared_ptr<IntegrationBase>, std::shared_ptr<BaseOdometryIntegration3D>>> frames;
     for (const auto& kv : all_image_frame) {
+        if (kv.first <= Headers[0].stamp.toSec())
+            continue;
+        if (kv.first > Headers[frame_count-1].stamp.toSec())
+            break;
         if (!kv.second.pre_integration || !kv.second.base_integration)
             continue;
         frames.emplace_back(make_pair(kv.second.pre_integration, kv.second.base_integration));
     }
-    vector<Vector3d> align_err_ps;
-    vector<Vector3d> align_err_vs;
+    vector<Vector3d> align_predict_err_ps, align_err_vs;
     VectorXd x;
     Vector3d g = Rs[0].inverse() * Vector3d(0, 0, G.norm());
-    base_imu_alignment_fixed_scale_g(frames, rio, tio, x, g, align_err_ps, align_err_vs);
-    Vector3d align_err_p = align_err_ps.back();
+    base_imu_alignment_fixed_scale_g(frames, rio, tio, x, g, align_predict_err_ps, align_err_vs);
 
-    Affine3d T_w_Bi = Translation3d(Ps[WINDOW_SIZE-1]) * Rs[WINDOW_SIZE-1];
-    Affine3d T_w_Bj = Translation3d(Ps[WINDOW_SIZE]) * Rs[WINDOW_SIZE];
-    Affine3d imu_predict_T_Bi_Bj = T_w_Bi.inverse() * T_w_Bj;
+    double sum_dt = 0;
+    Vector3d acc_0, gyr_0;
+    Vector3d P; P.setZero();
+    Quaterniond Q; Q.setIdentity();
+    Vector3d V = x.tail<3>();
+    for (const auto& kv : all_image_frame) {
+        if (kv.first <= Headers[frame_count-1].stamp.toSec())
+            continue;
+        const auto& pre = *kv.second.pre_integration;
+        acc_0 = pre.linearized_acc;
+        gyr_0 = pre.linearized_gyr;
+        for (int i = 0; i < pre.dt_buf.size(); i++) {
+            const auto& acc_1 = pre.acc_buf[i];
+            const auto& gyr_1 = pre.gyr_buf[i];
+            ImuUtility::midpoint_integration(pre.dt_buf[i], Rs[frame_count-1].inverse() * Vector3d(0, 0, G.norm()),
+                                             acc_0 - pre.linearized_ba, gyr_0 - pre.linearized_bg,
+                                             acc_1 - pre.linearized_ba, gyr_1 - pre.linearized_bg,
+                                             P, Q, V);
+            sum_dt += pre.dt_buf[i];
+            acc_0 = acc_1;
+            gyr_0 = gyr_1;
+        }
+    }
+    ROS_ASSERT(abs(sum_dt - (Headers[frame_count] - Headers[frame_count-1]).toSec()) < 0.001);
+    Affine3d align_predict_T_Bi_Bj = Translation3d(P) * Q;
+
+    Affine3d T_w_Bi = Translation3d(Ps[frame_count-1]) * Rs[frame_count-1];
+    Affine3d T_w_Bj = Translation3d(Ps[frame_count]) * Rs[frame_count];
+    Affine3d estimator_predict_T_Bi_Bj = T_w_Bi.inverse() * T_w_Bj;
+    
     Affine3d T_B_O = Translation3d(tio) * rio;
-    Affine3d imu_predict_T_Oi_Oj = T_B_O.inverse() * imu_predict_T_Bi_Bj * T_B_O;
+    Affine3d align_predict_T_Oi_Oj = T_B_O.inverse() * align_predict_T_Bi_Bj * T_B_O;
+    Affine3d estimator_predict_T_Oi_Oj = T_B_O.inverse() * estimator_predict_T_Bi_Bj * T_B_O;
     Affine3d wheel_predict_T_Oi_Oj = Translation3d(wheel_imu_predict->delta_p) * wheel_imu_predict->delta_q.toRotationMatrix();
-    Vector3d predict_err_p = imu_predict_T_Oi_Oj.translation() - wheel_predict_T_Oi_Oj.translation();
-    Quaterniond err_q(wheel_predict_T_Oi_Oj.linear().inverse() * imu_predict_T_Oi_Oj.linear());
+    
+    Vector3d align_predict_err_p = align_predict_err_ps.back();
+    Vector3d estimator_predict_err_p = estimator_predict_T_Oi_Oj.translation() - wheel_predict_T_Oi_Oj.translation();
+    Quaterniond estimator_predict_err_q(wheel_predict_T_Oi_Oj.linear().inverse() * estimator_predict_T_Oi_Oj.linear());
 
     Vector3d predict_std(sqrt(wheel_imu_predict->covariance(0, 0)),
                  sqrt(wheel_imu_predict->covariance(1, 1)),
                  sqrt(wheel_imu_predict->covariance(2, 2)));
-    double ma_dist_predict = sqrt(predict_err_p.transpose() * wheel_imu_predict->covariance.block<3, 3>(0, 0).inverse() * predict_err_p);
-    double ma_dist_align = sqrt(align_err_p.transpose() * wheel_imu_predict->covariance.block<3, 3>(0, 0).inverse() * align_err_p);
+    double ma_dist_predict = sqrt(estimator_predict_err_p.transpose() * wheel_imu_predict->covariance.block<3, 3>(0, 0).inverse() * estimator_predict_err_p);
+    double ma_dist_align = sqrt(align_predict_err_p.transpose() * wheel_imu_predict->covariance.block<3, 3>(0, 0).inverse() * align_predict_err_p);
 
     char c_str[1024];
     snprintf(c_str, 1024,
@@ -1131,26 +1167,38 @@ void Estimator::optimization()
              "predict_err[%6.3f %6.3f %6.3f] predict_ma_dist=%5.3lf \n"
              "  align_err[%6.3f %6.3f %6.3f]   align_ma_dist=%5.3lf \n"
              "predict_std[%6.3f %6.3f %6.3f]     min_ma_dist=%5.3lf ",
-             imu_predict_T_Oi_Oj.translation().norm(), wheel_predict_T_Oi_Oj.translation().norm(), predict_err_p.norm(),
-             predict_err_p.x(), predict_err_p.y(), predict_err_p.z(), ma_dist_predict,
-             align_err_p.x(), align_err_p.y(), align_err_p.z(), ma_dist_align,
+             estimator_predict_T_Oi_Oj.translation().norm(), wheel_predict_T_Oi_Oj.translation().norm(), estimator_predict_err_p.norm(),
+             estimator_predict_err_p.x(), estimator_predict_err_p.y(), estimator_predict_err_p.z(), ma_dist_predict,
+             align_predict_err_p.x(), align_predict_err_p.y(), align_predict_err_p.z(), ma_dist_align,
              predict_std.x(), predict_std.y(), predict_std.z(),
              min(ma_dist_predict, ma_dist_align));
     string info(c_str);
 
-    if (min(ma_dist_predict, ma_dist_align) > 1.5 && (Headers[WINDOW_SIZE].stamp.toSec() - initial_timestamp) > 1) {
+    if (!slipping && min(ma_dist_predict, ma_dist_align) > 1.5 && (Headers[WINDOW_SIZE].stamp.toSec() - initial_timestamp) > 1) {
+        slipping = true;
+    } else if (slipping && max(ma_dist_predict, ma_dist_align) <= 1) {
+        if (USE_ODOM)
+            ROS_INFO_STREAM("Wheel normal! " << info);
+        else
+            ROS_DEBUG_STREAM("Wheel normal! " << info);
+        slipping = false;
+    }
+    if (slipping) {
         wheel_slip_periods.emplace_back(
                 Headers[WINDOW_SIZE-1].stamp.toSec(),
                 Headers[WINDOW_SIZE].stamp.toSec());
         if (USE_ODOM)
             ROS_WARN_STREAM("Wheel slip! " << info);
+        else
+            ROS_DEBUG_STREAM("Wheel slip! " << info);
         status.emplace_back("slip", 1);
     } else {
         status.emplace_back("slip", 0);
     }
-    status_log_p("align_err", align_err_p);
+
+    status_log_p("align_err", align_predict_err_p);
     status.emplace_back("align_ma_dist", ma_dist_align);
-    status_log_p("predict_err", predict_err_p);
+    status_log_p("predict_err", estimator_predict_err_p);
     status.emplace_back("predict_ma_dist", ma_dist_predict);
     status_log_p("predict_std", predict_std);
 
@@ -1371,7 +1419,7 @@ void Estimator::optimization()
                                               vector<int>{0, 1});
                 marginalization_info->addResidualBlockInfo(residual_block_info);
             }
-            if (!is_inside_periods({Headers[0].stamp.toSec(), Headers[1].stamp.toSec()}, wheel_slip_periods)) {
+            if (USE_ODOM && !is_inside_periods({Headers[0].stamp.toSec(), Headers[1].stamp.toSec()}, wheel_slip_periods)) {
                 BaseOdomFactor *base_odom_factor = new BaseOdomFactor(base_integrations[1]);
                 ResidualBlockInfo *residual_block_info =
                         new ResidualBlockInfo(base_odom_factor, NULL,

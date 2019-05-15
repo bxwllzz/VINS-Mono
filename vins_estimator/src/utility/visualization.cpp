@@ -219,14 +219,14 @@ void PathTFPublisher::publish() {
     /* Publish transform */
     // fixed
     br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_c), header_.stamp, "body", "camera"));
-    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_o), header_.stamp, "body", "base_footprint"));
+    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_b_o.inverse()), header_.stamp, "base_footprint", "body"));
     br_.sendTransform(
             tf::StampedTransform(Affine3d2Transform(T_worldbase_w.inverse()), header_.stamp, "world", "world_base"));
     // dynamic
     br_.sendTransform(
             tf::StampedTransform(Affine3d2Transform(T_origin_worldbase.inverse()), header_.stamp, "world_base",
                                  "world_origin"));
-    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b), header_.stamp, "world", "body"));
+    br_.sendTransform(tf::StampedTransform(Affine3d2Transform(T_w_b.inverse()), header_.stamp, "body", "world"));
     br_.sendTransform(
             tf::StampedTransform(Affine3d2Transform(T_origin_o_wheel.inverse()), header_.stamp, "base_footprint",
                                  "wheel_odom"));

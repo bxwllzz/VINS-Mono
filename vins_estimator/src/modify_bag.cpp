@@ -8,19 +8,29 @@
 #include <vector>
 
 #include <Eigen/Dense>
+#include <opencv2/imgcodecs.hpp>
 
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CompressedImage.h>
+#include <sensor_msgs/image_encodings.h>
 #include <nav_msgs/Odometry.h>
 
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
+#include <cv_bridge/cv_bridge.h>
 
 using namespace std;
 using namespace Eigen;
 
+static bool str_endswith(const string &full_str, const string &end_str) {
+    if (full_str.size() < end_str.size())
+        return false;
+    return full_str.compare(full_str.size() - end_str.size(), end_str.size(), end_str) == 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 6) {
-        printf("Usage: %s bag_in bag_out blind|kidnap time_begin time_end\n",
+        printf("Usage: %s bag_in bag_out blind|kidnap|decompress_image|compress_image time_begin time_end\n",
                argv[0]);
         return -1;
     }
@@ -45,10 +55,10 @@ int main(int argc, char **argv) {
     cout << "Topics:" << endl;
     auto info = view.getConnections();
     map<string, string> topic_types;
-    for (auto& topic : info) {
+    for (auto &topic : info) {
         topic_types[topic->topic] = topic->datatype;
     }
-    for (auto& kv : topic_types) {
+    for (auto &kv : topic_types) {
         cout << "    " << kv.first << ": " << kv.second << endl;
     }
 
@@ -56,18 +66,18 @@ int main(int argc, char **argv) {
     rosbag::Bag bag_out(bag_out_path, rosbag::BagMode::Write);
     cout << "OK" << endl;
     if (op_type == "blind") {
-        for (const auto& m : view) {
+        for (const auto &m : view) {
             double t = (m.getTime() - view.getBeginTime()).toSec();
             if (t >= time_begin && t <= time_end && m.isType<sensor_msgs::Image>()) {
                 sensor_msgs::Image msg = *m.instantiate<sensor_msgs::Image>();
-                for (auto& c : msg.data)
+                for (auto &c : msg.data)
                     c = 0;
                 bag_out.write(m.getTopic(), m.getTime(), msg, m.getConnectionHeader());
 //                cout << "Set " << t << " " << m.getTopic() << " (" << msg.width << "x" << msg.height << ")" << " to blank" << endl;
             } else {
                 bag_out.write(m.getTopic(), m.getTime(), m, m.getConnectionHeader());
             }
-            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "%\r" << flush;
+            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "        %\r" << flush;
         }
     } else if (op_type == "kidnap") {
         Affine3d T_before;
@@ -75,7 +85,7 @@ int main(int argc, char **argv) {
         bool reach_after = false;
         Affine3d T_after;
         double err_after = 0;
-        for (const auto& m : view) {
+        for (const auto &m : view) {
             double t = (m.getTime() - view.getBeginTime()).toSec();
             if (m.isType<nav_msgs::Odometry>()) {
                 nav_msgs::Odometry msg = *m.instantiate<nav_msgs::Odometry>();
@@ -128,8 +138,47 @@ int main(int argc, char **argv) {
             } else {
                 bag_out.write(m.getTopic(), m.getTime(), m, m.getConnectionHeader());
             }
-            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "%\r" << flush;
+            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "%        \r" << flush;
         }
+    } else if (op_type == "compress_image") {
+        for (const auto &m : view) {
+            double t = (m.getTime() - view.getBeginTime()).toSec();
+            if (m.isType<sensor_msgs::Image>()) {
+                sensor_msgs::Image msg = *m.instantiate<sensor_msgs::Image>();
+                if (msg.encoding == sensor_msgs::image_encodings::TYPE_8UC1) {
+                    msg.encoding = sensor_msgs::image_encodings::MONO8;
+                }
+                cv_bridge::CvImagePtr cv_img = cv_bridge::toCvCopy(msg);
+                sensor_msgs::CompressedImagePtr compress_msg = cv_img->toCompressedImageMsg(cv_bridge::JPG);
+                if (str_endswith(m.getTopic(), "/compressed")) {
+                    bag_out.write(m.getTopic(), m.getTime(), compress_msg);
+                } else {
+                    bag_out.write(m.getTopic() + "/compressed", m.getTime(), compress_msg);
+                }
+            } else {
+                bag_out.write(m.getTopic(), m.getTime(), m, m.getConnectionHeader());
+            }
+            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "%        \r" << flush;
+        }
+    } else if (op_type == "decompress_image") {
+        for (const auto &m : view) {
+            double t = (m.getTime() - view.getBeginTime()).toSec();
+            if (m.isType<sensor_msgs::CompressedImage>()) {
+                sensor_msgs::CompressedImageConstPtr compress_msg = m.instantiate<sensor_msgs::CompressedImage>();
+                auto cv_img = cv_bridge::toCvCopy(compress_msg, compress_msg->format);
+                auto msg = cv_img->toImageMsg();
+                if (str_endswith(m.getTopic(), "/compressed")) {
+                    bag_out.write(m.getTopic().substr(0, m.getTopic().size() - strlen("/compressed")), m.getTime(), msg);
+                } else {
+                    bag_out.write(m.getTopic(), m.getTime(), msg);
+                }
+            } else {
+                bag_out.write(m.getTopic(), m.getTime(), m, m.getConnectionHeader());
+            }
+            cout << t / (view.getEndTime() - view.getBeginTime()).toSec() * 100 << "%        \r" << flush;
+        }
+    } else {
+        cout << "Unkonwn operation: " << op_type << endl;
     }
     cout << endl;
 

@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cmath>
-#include <cassert>
-#include <cstring>
 #include <vector>
 #include <Eigen/Dense>
 

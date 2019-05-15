@@ -160,6 +160,7 @@ public:
     // check wheel slip
     std::shared_ptr<BaseOdometryIntegration3D> wheel_imu_predict;
     std::list<pair<double, double>> wheel_slip_periods;
+    bool slipping;
 
     BaseOdometryIntegration3D base_integration_before_init;
 

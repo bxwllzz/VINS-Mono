@@ -45,28 +45,24 @@ extrinsicTranslation: !!opencv-matrix
    data: [0.00929952, 0.00520309, 0.00386146]
 
 # Extrinsic parameter between IMU and WheelOdometry (base_link).
-# q_odom2body = quaternion_from_euler(-91.0 / 180 * math.pi, -2.6 / 180 * math.pi, -90.0 / 180 * math.pi)
-# t_odom2body = (0.08, 0.06, 0.57)
-# T_body2odom =
-# [[  2.86741394e-16  -9.98970570e-01   4.53629881e-02   3.40813310e-02]
-#  [ -1.74524064e-02  -4.53560791e-02  -9.98818422e-01   5.73444058e-01]
-#  [  9.99847695e-01  -7.91693306e-04  -1.74344404e-02  -7.00026830e-02]
-#  [  0.00000000e+00   0.00000000e+00   0.00000000e+00   1.00000000e+00]]
+# Calibrated T^wheelodom_imu:
+   #  translation:  0.1008    0.0640    0.5750
+   #  YPR:         -89.2900   -2.7373  -91.1430
 extimate_extrinsic_odom: 0
-#Rotation from odom frame to imu frame, imu^R_odom
+#Rotation from odom frame to imu frame, R^wheelodom_imu:
 extrinsicOdomRotation: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 2.86741394e-16,  -9.98970570e-01,   4.53629881e-02,
-          -1.74524064e-02,  -4.53560791e-02,  -9.98818422e-01, 
-           9.99847695e-01,  -7.91693306e-04,  -1.74344404e-02]
-#Translation from camera frame to imu frame, imu^T_odom
+   data: [  0.0123774, -0.998782,   0.0477567,
+           -0.0193546, -0.0479907, -0.99866,
+            0.999736,   0.0114365, -0.019925 ]
+#Translation from camera frame to imu frame, p^wheelodom_imu:
 extrinsicOdomTranslation: !!opencv-matrix
    rows: 3
    cols: 1
    dt: d
-   data: [3.40813310e-02, 5.73444058e-01, -7.00026830e-02]
+   data: [ 0.0352143, 0.579252, -0.0900484 ]
 
 #feature traker paprameters
 max_cnt: 150            # max feature number in feature tracking
@@ -79,15 +75,35 @@ fisheye: 0              # if using fisheye, trun on it. A circle mask will be lo
 
 #optimization parameters
 max_solver_time: 0.03  # max solver itration time (ms), to guarantee real time
-max_num_iterations: 16   # max solver itrations, to guarantee real time
+max_num_iterations: 8   # max solver itrations, to guarantee real time
 keyframe_parallax: 10.0 # keyframe selection threshold (pixel)
 
 #imu parameters       The more accurate parameters you provide, the better performance
-acc_n: 0.08          # accelerometer measurement noise standard deviation. #0.2   0.04
-gyr_n: 0.004         # gyroscope measurement noise standard deviation.     #0.05  0.004
-acc_w: 0.00004         # accelerometer bias random work noise standard deviation.  #0.02
-gyr_w: 2.0e-6       # gyroscope bias random work noise standard deviation.     #4.0e-5
-g_norm: 9.805    # gravity magnitude
+acc_n: 0.1          # accelerometer measurement noise standard deviation. #0.2
+gyr_n: 0.01         # gyroscope measurement noise standard deviation.     #0.05
+acc_w: 0.001        # accelerometer bias random work noise standard deviation.  #0.02
+gyr_w: 2.0e-5       # gyroscope bias random work noise standard deviation.     #4.0e-5
+g_norm: 9.805       # gravity magnitude
+
+#wheel odometry parameters
+# V_measure=scale*V_true
+wheel_odom_scale: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 1.0027, 0,      0, 
+           0,      0.9639, 0, 
+           0,      0,      1 ]
+wheel_min_n: 0.01    # wheel odom mininum error stardard deviation (due to wheel encoder's disatema), unit: meter
+wheel_n: 0.005       # wheel odom error stardard deviation per meter
+use_odom: 3          # 0: not use odom factor (as original VINS-Mono)
+                     # 1: use only inter-frame odom factor
+                     # 2: use only begin-end-frame odom factor
+                     # 3: use both inter-frame odom factor and begin-end-frame odom factor
+init_use_odom: 1     # 0: use IMU and camera to init estimator (as original VINS-Mono)
+                     # 1: use IMU and wheel odometry to init estimator
+
+use_plane_factor: 1  # 0: no plane limit 
 
 #loop closure parameters
 loop_closure: 1                    # start loop closure
@@ -98,6 +114,8 @@ pose_graph_save_path: "/home/hustac/output/pose_graph/" # save and load path
 #unsynchronization parameters
 estimate_td: 1                      # online estimate time offset between camera and imu
 td: 0.0167                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+estimate_odom_td: 0                 # online estimate time offset between odom and imu
+odom_td: 0                        # initial value of time offset. unit: s. readed odom clock + td = real odom clock (IMU clock)
 
 #rolling shutter parameters
 rolling_shutter: 0                  # 0: global shutter camera, 1: rolling shutter camera

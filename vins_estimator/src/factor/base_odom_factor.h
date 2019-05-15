@@ -43,7 +43,7 @@ public:
         residual = pre_integration->evaluate(Pi, Qi, Bgi,
                                              Pj, Qj);
 
-        Eigen::Matrix<double, 3, 3> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 3, 3>>(pre_integration->covariance.block<3, 3>(0, 0).inverse()).matrixL().transpose();
+        Eigen::Matrix<double, 3, 3> sqrt_info = Eigen::LLT<Matrix3d>(pre_integration->covariance.block<3, 3>(0, 0).inverse()).matrixL().transpose();
         //sqrt_info.setIdentity();
         residual = sqrt_info * residual;
 
